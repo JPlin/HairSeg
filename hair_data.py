@@ -167,6 +167,8 @@ def gen_transform_data_loader(options,
                               mode='train',
                               batch_size=1,
                               shuffle=True):
+    from torchvision import transforms, utils
+    from component.data_transforms import Rescale, RandomCrop, Exposure, ToTensor
     ds = GeneralDataset(
         options,
         mode=mode,
@@ -189,7 +191,7 @@ def gen_transform_data_loader(options,
 if __name__ == '__main__':
     import yaml
     from torchvision import transforms, utils
-    from data_transforms import Rescale, RandomCrop, Exposure, ToTensor
+    from component.data_transforms import Rescale, RandomCrop, Exposure, ToTensor
     plt.ion()
     options = yaml.load(
         open(os.path.join(ROOT_DIR, 'options', 'dfn_hairseg.yaml')))
