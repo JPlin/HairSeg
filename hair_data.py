@@ -178,6 +178,8 @@ def gen_transform_data_loader(options,
             transforms.Normalize(
                 mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ]))
+    print("=> generate data loader: mode({0}) , length({1})".format(
+        mode, len(ds)))
     ds_loader = DataLoader(
         ds, batch_size=batch_size, shuffle=shuffle, num_workers=0)
 

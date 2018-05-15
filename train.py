@@ -11,6 +11,7 @@ import torch.nn.parallel
 import torch.optim
 import torchvision.models as models
 import yaml
+from logger import Logger
 
 from hair_data import GeneralDataset, gen_transform_data_loader
 from HairNet import DFN
@@ -29,20 +30,34 @@ args = parser.parse_args()
 
 def main():
     global device, options, best_pick
+
+    # use the gpu or cpu as specificed
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device_ids = None
+    if not args.gpu_ids is None:
+        if torch.cuda.is_available():
+            device_ids = list(range(torch.cuda.device_count()))
+    else:
+        device_ids = args.gpu_ids
+    
+    # set logger
+    save_log_dir = os.path.join(ROOT_DIR, args.log_dir, args.options[:-4])
+    check_paths(save_log_dir)
+    logger = Logger(save_log_dir)
+
+    # set other settings
     options = yaml.load(open(os.path.join(ROOT_DIR, 'options', args.options)))
     start_epoch = 0
     best_pick = 0
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    save_log_dir = os.path.join(ROOT_DIR, args.log_dir, args.options[:-4])
-    check_paths(save_log_dir)
+
 
     # build the model
     model = DFN()
     if options['arch'].startswith('alexnet') or options['arch'].startswith(
             'vgg'):
-        model.features = torch.nn.DataParallel(model.features)
+        model.features = nn.DataParallel(model.features , device_ids= device_ids)
     else:
-        model = torch.nn.DataParallel(model)
+        model = nn.DataParallel(model , device_ids= device_ids)
     model.to(device)
 
     criterion = nn.CrossEntropyLoss().to(device)
@@ -113,13 +128,16 @@ def train(train_loader, model, criterion, optimizer, epoch):
     model.train()
 
     end = time.time()
-    for i, (input, target) in enumerate(train_loader):
+    for i in range(options[step_per_epoch]):
+        batch = next(train_loader)
+        input , target = batch['image'] , batch['label']
         # measure data loading time
         data_time.update(time.time() - end)
         target = target.to(device)
 
         # compute output
         output = model(input)
+        prediction = torch.argmax(output , dim = 1)
         loss = criterion(output, target)
 
         # measure accuracy and record loss
@@ -135,7 +153,7 @@ def train(train_loader, model, criterion, optimizer, epoch):
         end = time.time()
 
         # print every 10 step
-        if i % 10 == 0:
+        if i % 100 == 0:
             print('Epoch: [{0}][{1}][{2}]\t'
                   'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                   'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
@@ -146,8 +164,25 @@ def train(train_loader, model, criterion, optimizer, epoch):
                       batch_time=batch_time,
                       data_time=data_time,
                       loss=losses))
+            # log scalar values
+            logger.scalar_summary('loss' , losses.avg , epoch*options[step_per_epoch] + i + 1)
 
-def validata(test_loader , )
+            # log training images
+            info={'input_image': input.view(-1,).cpu().numpy(),
+                    'ground_truth': target.view(-1,).cpu().numpy(),
+                    'prediction': output.view(-1).cpu().numpy()}
+
+def validata(test_loader, model, criterion):
+    batch_time = AverageMeter()
+    losses = AverageMeter()
+
+    # switch to evaluate mode
+    model.eval()
+
+    with torch.no_grad():
+        end = time.time()
+        for i, batch in enumerate(val_loader):
+             
 
 def adjust_learning_rate(optimizer, epoch):
     lr = options['lr_base'] * ((1 - options['lr_decay'])**(epoch // 10))
