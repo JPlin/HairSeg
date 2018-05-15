@@ -20,10 +20,10 @@ class DFN(nn.Module):
         self.stage_2 = StageBlock(2)
         self.stage_3 = StageBlock(3)
         self.stage_4 = StageBlock(4)
-        self.upsample = nn.Upsample(scale_factor=4, mode='bilinear')
-        self.conv2 = ConvLayer(512, 2, kernel_size=1, stride=1)
+        self.score_map = ConvLayer(512, 2, kernel_size=1, stride=1)
 
     def forward(self, x):
+        x_ = x
         x = self.conv1(x)
         x = self.pool1(x)
         x_1 = self.res_1(x)
@@ -35,9 +35,8 @@ class DFN(nn.Module):
         x = self.stage_3(x_3, x)
         x = self.stage_2(x_2, x)
         x = self.stage_1(x_1, x)
-        x = self.upsample(x)
-        x = self.conv2(x)
-        return x
+        x = self.score_map(x)
+        return F.upsample_bilinear(x, x_.size()[2:])
 
 
 class StageBlock(nn.Module):
