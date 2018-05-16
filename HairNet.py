@@ -7,8 +7,10 @@ import numpy as np
 
 class DFN(nn.Module):
     def __init__(self, in_channels=3, out_channels=64):
+        super(DFN, self).__init__()
         self.conv1 = ConvLayer(
             in_channels, out_channels, kernel_size=3, stride=2)
+        self.conv2 = ConvLayer(2048, 512, kernel_size=1, stride=1)
         self.pool1 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         resnet101 = models.resnet101(pretrained=True)
         self.res_1 = resnet101.layer1
@@ -31,25 +33,27 @@ class DFN(nn.Module):
         x_3 = self.res_3(x_2)
         x_4 = self.res_4(x_3)
         x_gp = self.avg_pool(x_4)
+        x_gp = self.conv2(x_gp)
         x = self.stage_4(x_4, x_gp)
         x = self.stage_3(x_3, x)
         x = self.stage_2(x_2, x)
         x = self.stage_1(x_1, x)
         x = self.score_map(x)
-        return F.upsample_bilinear(x, x_.size()[2:])
+        return F.upsample(x, x_.size()[2:], mode='bilinear')
 
 
 class StageBlock(nn.Module):
     def __init__(self, stage=1):
+        super(StageBlock, self).__init__()
         assert stage in [1, 2, 3, 4]
         if stage == 1:
-            in_channels = 64
-        elif stage == 2:
-            in_channels = 128
-        elif stage == 3:
             in_channels = 256
-        elif stage == 4:
+        elif stage == 2:
             in_channels = 512
+        elif stage == 3:
+            in_channels = 1024
+        elif stage == 4:
+            in_channels = 2048
 
         self.RRB_1 = RRB(in_channels, 512)
         self.CAB = CAB(512)
@@ -62,7 +66,7 @@ class StageBlock(nn.Module):
     def forward(self, x1, x2):
         x1 = self.RRB_1(x1)
         if self.upsample:
-            x2 = self.upsample(x1)
+            x2 = self.upsample(x2)
         else:
             f_size = x1.size()[2]
             x2 = x2.repeat(1, 1, f_size, f_size)
@@ -76,10 +80,10 @@ class CAB(nn.Module):
         super(CAB, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         self.conv1_1 = ConvLayer(
-            in_channels, in_channels, kernel_size=1, stride=1)
+            in_channels * 2, in_channels // 6, kernel_size=1, stride=1)
         self.relu = nn.ReLU()
         self.conv1_2 = ConvLayer(
-            in_channels, in_channels, kernel_size=1, stride=1)
+            in_channels // 6, in_channels, kernel_size=1, stride=1)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x1, x2):
@@ -110,12 +114,12 @@ class RRB(nn.Module):
         self.relu = nn.ReLU()
 
     def forward(self, x):
-        x = self.conv1(x)
+        x = self.conv1_1(x)
         residul = x
-        x = self.conv3(x)
+        x = self.conv3_1(x)
         x = self.bn(x)
         x = self.relu(x)
-        x = self.conv3(x)
+        x = self.conv3_2(x)
         sum = residul + x
         x = self.relu(sum)
         return x

@@ -5,11 +5,13 @@ import numpy as np
 from matplotlib import pyplot as plt
 import torch
 from torch.utils.data import Dataset, DataLoader
+from torchvision import transforms, utils
+from component.data_transforms import Rescale, RandomCrop, Exposure, ToTensor, Normalize
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 # where the real image placement
-sys.path.append('\\\\MININT-37Q0T4O\\Datasets\\FaceData')
-import Parsing as ps  # parsing data module
+sys.path.append('E:\\haya\\FaceData')
+import Parsing as ps
 
 
 class GeneralDataset(Dataset):
@@ -22,6 +24,7 @@ class GeneralDataset(Dataset):
         self.im_size = options['im_size']
         self.aug_setting_name = options['aug_setting_name']
         self.query_label_names = options['query_label_names']
+        print(self.query_label_names)
         self.transform = transform
         if mode == 'train':
             self.raw_dataset = self.gen_training_data(self.query_label_names,
@@ -136,7 +139,7 @@ def test_dataloader(options):
         ToTensor()
     ])
     ds = GeneralDataset(options, mode='train', transform=transform)
-    ds_loader = DataLoader(ds, batch_size=4, shuffle=True, num_workers=0)
+    ds_loader = DataLoader(ds, batch_size=4, shuffle=True, num_workers=1)
 
     def _show_batch(sample_batch):
         image_batch, label_batch = sample_batch['image'], sample_batch['label']
@@ -146,6 +149,7 @@ def test_dataloader(options):
         plt.figure()
         plt.imshow(grid.numpy().transpose((1, 2, 0)))
         grid = label_batch.numpy()
+        print(np.unique(grid))
         grids = []
         for i in range(batch_size):
             grids.append(grid[i])
@@ -167,8 +171,6 @@ def gen_transform_data_loader(options,
                               mode='train',
                               batch_size=1,
                               shuffle=True):
-    from torchvision import transforms, utils
-    from component.data_transforms import Rescale, RandomCrop, Exposure, ToTensor
     ds = GeneralDataset(
         options,
         mode=mode,
@@ -176,14 +178,13 @@ def gen_transform_data_loader(options,
             Exposure(options['grey_ratio']),
             Rescale(options['crop_size']),
             RandomCrop(options['im_size']),
+            Normalize(),
             ToTensor(),
-            transforms.Normalize(
-                mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ]))
     print("=> generate data loader: mode({0}) , length({1})".format(
         mode, len(ds)))
     ds_loader = DataLoader(
-        ds, batch_size=batch_size, shuffle=shuffle, num_workers=0)
+        ds, batch_size=batch_size, shuffle=shuffle, num_workers=8)
 
     return ds_loader
 

@@ -1,5 +1,5 @@
 # network
-arch: resnet50
+arch: resnet101
 
 # train setting
 optimizer: sgd
@@ -7,8 +7,9 @@ lr_base: 0.01
 lr_decay: 0.9
 momentum: 0.9
 epoch: 1
-step_per_epoch: 1000
-batch_size: 32
+step_per_epoch: 1000 # -1 means walk through all data
+validation_step: 50
+batch_size: 24
 weight_decay: 0.0001
 
 # dataset setting

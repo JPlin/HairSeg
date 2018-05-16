@@ -49,8 +49,9 @@ class Rescale(object):
         new_h, new_w = int(new_h), int(new_w)
 
         img = transform.resize(image, (new_h, new_w))
-        label = transform.resize(label, (new_h, new_w), mode='edge')
-
+        label = transform.resize(
+            label.astype(np.float), (new_h, new_w), order=0,
+            mode='reflect').astype(np.uint8)
         return {'image': img, 'label': label}
 
 
@@ -72,11 +73,22 @@ class Exposure(object):
         return {"image": image, "label": label}
 
 
+class Normalize(object):
+    def __init__(self, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]):
+        self.mean = mean
+        self.std = std
+
+    def __call__(self, sample):
+        image, label = sample['image'], sample['label']
+        image = (image - self.mean) / self.std
+        return {"image": image, "label": label}
+
+
 class ToTensor(object):
     def __call__(self, sample):
         image, label = sample['image'], sample['label']
         image = image.transpose((2, 0, 1))
         return {
-            'image': torch.from_numpy(image),
-            'label': torch.from_numpy(label)
+            'image': torch.from_numpy(image).to(torch.float),
+            'label': torch.from_numpy(label).to(torch.long)
         }

@@ -4,54 +4,48 @@ import shutil
 import sys
 import time
 
+import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import torch.nn.parallel
 import torch.optim
 import torchvision.models as models
+import torchvision.utils as vutils
 import yaml
+from tensorboardX import SummaryWriter
 
 from hair_data import GeneralDataset, gen_transform_data_loader
 from HairNet import DFN
 from component.criterion import CrossEntropyLoss2d
-from component.logger import Logger
 from component.metrics import Acc_score
 
-ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-parser = argparse.ArgumentParser(description='Pytorch Hair Segmentation Train')
-parser.add_argument('options', type=str, help='train options name | xxx.yaml')
-parser.add_argument('--resume', default='', type=str, metavar='PATH')
-parser.add_argument('--pretrain', default=True)
-parser.add_argument('--debug', type=bool, default=False)
-parser.add_argument('--log_dir', type=str, default='logs')
-parser.add_argument('--gpu_ids', type=int, nargs='*')
-args = parser.parse_args()
-
-
-def main():
-    global device, options, logger, best_pick, acc_hist
-
+def main(arguments):
+    global device, options, writer, best_pick, acc_hist, args, global_step
+    args = arguments
+    global_step = 0
     # use the gpu or cpu as specificed
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device_ids = None
-    if not args.gpu_ids is None:
+    if args.gpu_ids is None:
         if torch.cuda.is_available():
             device_ids = list(range(torch.cuda.device_count()))
     else:
         device_ids = args.gpu_ids
+        device = torch.device("cuda:{}".format(device_ids[0]))
 
     # set logger
+    ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
     save_log_dir = os.path.join(ROOT_DIR, args.log_dir, args.options[:-4])
     check_paths(save_log_dir)
-    logger = Logger(save_log_dir)
+    writer = SummaryWriter(log_dir=save_log_dir, comment='DFN event')
 
     # set other settings
     options = yaml.load(open(os.path.join(ROOT_DIR, 'options', args.options)))
     start_epoch = 0
     best_pick = 0
-    acc_hist = Acc_score(['hair'])
+    acc_hist = Acc_score(options['query_label_names'])
 
     # build the model
     model = DFN()
@@ -60,7 +54,12 @@ def main():
         model.features = nn.DataParallel(model.features, device_ids=device_ids)
     else:
         model = nn.DataParallel(model, device_ids=device_ids)
+
     model.to(device)
+    if args.debug:
+        print(model)
+    dummy_input = torch.rand(1, 3, 512, 512)
+    #writer.add_graph(model, (dummy_input))  # add the model
 
     criterion = CrossEntropyLoss2d().to(device)
     if options['optimizer'] == 'sgd':
@@ -88,6 +87,7 @@ def main():
             checkpoint = torch.load(args.resume)
             start_epoch = checkpoint['epoch']
             best_pick = checkpoint['best_pick']
+            global_step = checkpoint['global_step']
             model.load_state_dict(checkpoint['state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer'])
             print("=> loaded checkpoint '{}' (epoch {})".format(
@@ -96,9 +96,10 @@ def main():
             print("=> no checkpoint found as '{}'".format(args.resume))
 
     # define dataset
-    train_loader = gen_transform_data_loader(options, mode='train')
+    train_loader = gen_transform_data_loader(
+        options, mode='train', batch_size=options['batch_size'])
     test_loader = gen_transform_data_loader(
-        options, mode='test', shuffle=False)
+        options, mode='test', batch_size=options['batch_size'], shuffle=False)
 
     # start training
     for epoch in range(start_epoch, options['epoch']):
@@ -118,11 +119,16 @@ def main():
             'arch': options['arch'],
             'state_dict': model.state_dict(),
             'best_pick': best_pick,
-            'optimizer': optimizer.state_dict()
+            'optimizer': optimizer.state_dict(),
+            'global_step': global_step
         }, is_best)
+
+    # close writer
+    writer.close()
 
 
 def train(train_loader, model, criterion, optimizer, epoch):
+    global global_step
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
@@ -130,16 +136,24 @@ def train(train_loader, model, criterion, optimizer, epoch):
     model.train()
 
     end = time.time()
-    for i in range(options['step_per_epoch']):
-        batch = next(train_loader)
-        input, target = batch['image'], batch['label']
+    for i, batch in enumerate(train_loader):
+        global_step += 1
+        input, target = batch['image'].to(device), batch['label'].to(device)
+
+        if args.debug:
+            print('input.size: {} , target.size: {}'.format(
+                input.size(), target.size()))
+
         # measure data loading time
         data_time.update(time.time() - end)
-        target = target.to(device)
 
         # compute output
         output = model(input)
         loss = criterion(output, target)
+
+        if args.debug:
+            print('output.size: {}, target.size: {} , loss.size: {}'.format(
+                output.size(), target.size(), loss.size()))
 
         # measure accuracy and record loss
         losses.update(loss.item(), input.size(0))
@@ -154,8 +168,9 @@ def train(train_loader, model, criterion, optimizer, epoch):
         end = time.time()
 
         # print every 10 step
-        if i % 100 == 0:
-            print('Epoch: [{0}][{1}][{2}]\t'
+        freq = 10 if args.debug else 100
+        if i % freq == 0:
+            print('Epoch: [{0}]<--[{1}]/[{2}]\t'
                   'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                   'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
                   'Loss {loss.val:.4f} ({loss.avg:.4f})'.format(
@@ -165,14 +180,34 @@ def train(train_loader, model, criterion, optimizer, epoch):
                       batch_time=batch_time,
                       data_time=data_time,
                       loss=losses))
-            # log scalar values
-            logger.scalar_summary('loss', losses.avg,
-                                  epoch * options['step_per_epoch'] + i + 1)
 
-            # log training images
-            # info={'input_image': input.view(-1,).cpu().numpy(),
-            #         'ground_truth': target.view(-1,).cpu().numpy(),
-            #         'prediction': output.view(-1).cpu().numpy()}
+            def _make_numpy_image(tensor, if_max=True):
+                p = tensor.cpu().clone()
+                p = p.detach().numpy()
+                if if_max:
+                    p = np.argmax(p, axis=1)
+                p = np.expand_dims(p, -1)
+                p = np.tile(p, (1, 1, 1, 3))
+                print(">> ", p.shape)
+                return p[0]
+
+            def _unmold(tensor):
+                mean = [0.485, 0.456, 0.406]
+                std = [0.229, 0.224, 0.225]
+                p = tensor.cpu().clone()
+                p = p.detach().numpy()
+                p = np.transpose(p, (0, 2, 3, 1))
+                p = p * std + mean
+                return p[0]
+
+            writer.add_scalar(
+                'train_loss', losses.avg, global_step=global_step)
+            writer.add_image('input', _unmold(input), global_step)
+            writer.add_image('target', _make_numpy_image(target, if_max=False),
+                             global_step)
+            writer.add_image('pred', _make_numpy_image(output), global_step)
+        if options['step_per_epoch'] != -1 and options['step_per_epoch'] <= i:
+            break
 
 
 def validata(test_loader, model, criterion):
@@ -192,21 +227,27 @@ def validata(test_loader, model, criterion):
             output = model(input)
             loss = criterion(output, target)
             losses.update(loss.item(), input.size(0))
-            acc_hist.collect(target, torch.argmax(output, dim=1))
+            acc_hist.collect(target.item(), torch.argmax(output, dim=1).item())
 
             batch_time.update(time.time() - end)
             end = time.time()
 
+            if i >= options['validation_step']:
+                break
+
+        f1_result = acc_hist.get_f1_results(options['query_label_names'])
         print('Valiation: [{0}]\t'
               'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
               'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
               'Acc of f-score [{1}]'.format(
                   len(test_loader),
-                  acc_hist.get_f1_results(['hair']),
+                  f1_result,
                   batch_time=batch_time,
                   loss=losses))
 
-    return acc_hist.get_f1_results(['hair'])
+        writer.add_scalar('valid_loss', losses.avg, global_step=global_step)
+        writer.add_scalar('f1-score', f1_result, global_step=global_step)
+    return f1_result
 
 
 def adjust_learning_rate(optimizer, epoch):
@@ -249,3 +290,17 @@ class AverageMeter(object):
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(
+        description='Pytorch Hair Segmentation Train')
+    parser.add_argument(
+        'options', type=str, help='train options name | xxx.yaml')
+    parser.add_argument('--resume', default='', type=str, metavar='PATH')
+    parser.add_argument('--pretrain', default=True)
+    parser.add_argument('--debug', type=bool, default=True)
+    parser.add_argument('--log_dir', type=str, default='logs')
+    parser.add_argument('--gpu_ids', type=int, nargs='*')
+    args = parser.parse_args()
+    main(args)
