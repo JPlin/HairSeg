@@ -21,9 +21,16 @@ class GeneralDataset(Dataset):
                  from_to_ratio=None,
                  transform=None):
         super(GeneralDataset, self).__init__()
-        self.im_size = options['im_size']
-        self.aug_setting_name = options['aug_setting_name']
-        self.query_label_names = options['query_label_names']
+        if options:
+            self.im_size = options['im_size']
+            self.aug_setting_name = options['aug_setting_name']
+            self.query_label_names = options['query_label_names']
+        else:
+            # test data is pre_define
+            self.im_size = 512
+            self.aug_setting_name = 'aug_512_0.6_multi_person'
+            self.query_label_names = ['hair']
+
         print(self.query_label_names)
         self.transform = transform
         if mode == 'train':
@@ -116,6 +123,17 @@ class GeneralDataset(Dataset):
         return ps.CombinedDataset(datasets)
 
 
+# for evaluate
+def get_helen_test_data(query_label_names, aug_setting_name='aug_512_0.8'):
+    return ps.Dataset(
+        'HELENRelabeled',
+        category='test',
+        aug_ids=[0],
+        aug_setting_name=aug_setting_name,
+        query_label_names=query_label_names)
+
+
+# for unit test , test pytorch dataset
 def test_dataset(options):
     transform = transforms.Compose([
         Exposure(options['grey_ratio']),
@@ -131,6 +149,7 @@ def test_dataset(options):
             break
 
 
+# for unit test , test pytorch dataloader
 def test_dataloader(options):
     transform = transforms.Compose([
         Exposure(options['grey_ratio']),
@@ -170,11 +189,12 @@ def test_dataloader(options):
 def gen_transform_data_loader(options,
                               mode='train',
                               batch_size=1,
-                              shuffle=True):
+                              shuffle=True,
+                              dataloader=True):
     ds = GeneralDataset(
         options,
         mode=mode,
-        transform=transforms.Compose([
+        transform=None if mode == 'test' else transforms.Compose([
             Exposure(options['grey_ratio']),
             Rescale(options['crop_size']),
             RandomCrop(options['im_size']),
@@ -185,8 +205,10 @@ def gen_transform_data_loader(options,
         mode, len(ds)))
     ds_loader = DataLoader(
         ds, batch_size=batch_size, shuffle=shuffle, num_workers=8)
-
-    return ds_loader
+    if dataloader:
+        return ds_loader
+    else:
+        return ds
 
 
 if __name__ == '__main__':

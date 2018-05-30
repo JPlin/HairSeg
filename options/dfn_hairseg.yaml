@@ -6,10 +6,10 @@ optimizer: sgd
 lr_base: 0.01
 lr_decay: 0.9
 momentum: 0.9
-epoch: 1
-step_per_epoch: 1000 # -1 means walk through all data
-validation_step: 50
-batch_size: 24
+epoch: 20
+step_per_epoch: -1 # -1 means walk through all data
+validation_step: 10
+batch_size: 30
 weight_decay: 0.0001
 
 # dataset setting

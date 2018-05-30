@@ -22,7 +22,7 @@ class Acc_score(object):
             eval_label_names = self.query_label_names
         hists = np.stack(self.hists, axis=0)
         hist_sum = np.sum(hists, axis=0)
-        # print(hist_sum)
+        # print('histogram sum', hist_sum)
         f1s = self._collect_f1s(hist_sum, self.query_label_names,
                                 eval_label_names)
         return f1s
