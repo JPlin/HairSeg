@@ -194,7 +194,8 @@ def gen_transform_data_loader(options,
     ds = GeneralDataset(
         options,
         mode=mode,
-        transform=None if mode == 'test' else transforms.Compose([
+        transform=transforms.Compose([Normalize(), ToTensor()])
+        if mode == 'test' else transforms.Compose([
             Exposure(options['grey_ratio']),
             Rescale(options['crop_size']),
             RandomCrop(options['im_size']),

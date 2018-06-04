@@ -1,6 +1,8 @@
 # network
 arch: resnet101
-multi_scale_loss: false
+multi_scale_loss: true
+add_fc: False
+self_attention: True
 
 # train setting
 optimizer: sgd
@@ -10,7 +12,7 @@ momentum: 0.9
 epoch: 20
 step_per_epoch: -1 # -1 means walk through all data
 validation_step: 10
-batch_size: 30
+batch_size: 28
 weight_decay: 0.0001
 
 # dataset setting

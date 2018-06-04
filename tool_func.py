@@ -1,5 +1,7 @@
+import os
 import torch
 import numpy as np
+import shutil
 
 
 class AverageMeter(object):
@@ -19,12 +21,6 @@ class AverageMeter(object):
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
-
-
-def adjust_learning_rate(optimizer, epoch):
-    lr = options['lr_base'] * ((1 - options['lr_decay'])**(epoch // 10))
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = lr
 
 
 def save_checkpoint(state, is_best, dirname):
@@ -68,6 +64,8 @@ def raw2image(tensor, if_max=True):
     '''
     if type(tensor) == torch.Tensor:
         p = tensor.cpu().detach().numpy()
+    else:
+        p = tensor
     if if_max:
         p = np.argmax(p, axis=1)
     p = np.expand_dims(p, -1)
@@ -118,3 +116,12 @@ def blend_labels(image, labels):
     image[np.where(image > 1.0)] = 1.0
     image[np.where(image < 0)] = 0.0
     return image
+
+
+def str2bool(v):
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')

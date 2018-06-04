@@ -6,23 +6,53 @@ import numpy as np
 
 
 class DFN(nn.Module):
-    def __init__(self, in_channels=3, out_channels=64):
+    def __init__(self,
+                 in_channels=3,
+                 out_channels=64,
+                 add_fc=True,
+                 self_attention=False,
+                 debug=False):
         super(DFN, self).__init__()
+        self.add_fc = add_fc  # if flatten and fc the last stage
+        self.self_attention = self_attention  # if add self attention
+        self.debug = debug
         self.conv1 = ConvLayer(
             in_channels, out_channels, kernel_size=3, stride=2)
-        self.conv2 = ConvLayer(2048, 512, kernel_size=1, stride=1)
         self.pool1 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         resnet101 = models.resnet101(pretrained=True)
         self.res_1 = resnet101.layer1
         self.res_2 = resnet101.layer2
         self.res_3 = resnet101.layer3
         self.res_4 = resnet101.layer4
+
+        # for normal
+        self.down_channel = ConvLayer(2048, 128, kernel_size=1, stride=1)
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
+
+        # for fc
+        if self.add_fc:
+            self.fc1 = ConvLayer(
+                128 * 16 * 16, 1024 * 2, kernel_size=1, stride=1)
+            self.fc2 = ConvLayer(
+                1024 * 2, 512 * 8 * 8, kernel_size=1, stride=1)
+
+        # for self_attention
+        if self.self_attention:
+            sample_num = 8 * 8
+            feature_size = 512
+            dim_k = feature_size
+            self.down_channel_attention = ConvLayer(
+                2048, feature_size, kernel_size=3, stride=2)
+            self.RM = RelationModule(sample_num, feature_size, dim_k)
+
         self.stage_1 = StageBlock(1)
+        self.score_map_1 = ConvLayer(512, 2, kernel_size=1, stride=1)
         self.stage_2 = StageBlock(2)
+        self.score_map_2 = ConvLayer(512, 2, kernel_size=1, stride=1)
         self.stage_3 = StageBlock(3)
+        self.score_map_3 = ConvLayer(512, 2, kernel_size=1, stride=1)
         self.stage_4 = StageBlock(4)
-        self.score_map = ConvLayer(512, 2, kernel_size=1, stride=1)
+        self.score_map_4 = ConvLayer(512, 2, kernel_size=1, stride=1)
 
     def forward(self, x):
         x_ = x
@@ -32,14 +62,93 @@ class DFN(nn.Module):
         x_2 = self.res_2(x_1)
         x_3 = self.res_3(x_2)
         x_4 = self.res_4(x_3)
-        x_gp = self.avg_pool(x_4)
-        x_gp = self.conv2(x_gp)
+        if self.debug:
+            print("resnet ouput size ", x_4.size())
+
+        if self.add_fc:
+            # cut channel --> flatten --> fc --> reshape : [b , 512 , 8 ,8]
+            x_gp = self.down_channel(x_4)
+            x_flatten = x_gp.view(x_gp.size()[0], -1, 1, 1)
+            x_flatten = self.fc1(x_flatten)
+            x_flatten = self.fc2(x_flatten)
+            if self.debug:
+                print("flatten fc size ", x_flatten.size())
+            x_gp = x_flatten.view(x_flatten.size()[0], 512, 8, 8)
+
+        elif self.self_attention:
+            x_fc = self.down_channel_attention(x_4)
+            x_gp = self.RM(x_fc)
+        else:
+            x_gp = self.avg_pool(x_4)
+            # if flatten reshape two [b , c , h ,w ]
+            f_size = x_4.size()[2]
+            x_gp = x_gp.repeat(1, 1, f_size, f_size)
+
         x = self.stage_4(x_4, x_gp)
+        score_4 = self.score_map_4(x)
+        if self.debug:
+            print("stage 4's size ", x.size())
         x = self.stage_3(x_3, x)
+        score_3 = self.score_map_3(x)
+        if self.debug:
+            print("stage 3's size ", x.size())
         x = self.stage_2(x_2, x)
+        score_2 = self.score_map_2(x)
+        if self.debug:
+            print("stage 2's size ", x.size())
         x = self.stage_1(x_1, x)
-        x = self.score_map(x)
-        return F.upsample(x, x_.size()[2:], mode='bilinear')
+        score_1 = self.score_map_1(x)
+        if self.debug:
+            print("stage 1's size ", x.size())
+        #F.upsample(x, x_.size()[2:], mode='bilinear'),
+        return [score_1, score_2, score_3, score_4]
+
+
+class RelationModule(nn.Module):
+    def __init__(self, sample_num, feature_size, dim_k):
+        super(RelationModule, self).__init__()
+        self.sample_num = sample_num
+        self.feature_size = feature_size
+        self.dim_k = dim_k
+        self.W_v = nn.Parameter(torch.Tensor(dim_k, feature_size))
+        self.W_q = nn.Parameter(torch.Tensor(dim_k, feature_size))
+        self.W_k = nn.Parameter(torch.Tensor(dim_k, feature_size))
+        nn.init.xavier_uniform_(self.W_v)
+        nn.init.xavier_uniform_(self.W_q)
+        nn.init.xavier_uniform_(self.W_k)
+
+    def forward(self, x):
+        '''
+        x: shape [b , c , h , w]
+        return: shape [b ,c , h,w]
+        '''
+        x_ = x
+        x_shape = x.size()
+        x_t = x.view(x_shape[0], x_shape[1], -1).contiguous()  # [b , c, h * w]
+        Q = torch.bmm(
+            self.W_q.unsqueeze(0).expand(x_shape[0], self.dim_k,
+                                         self.feature_size), x_t)
+        Q = torch.transpose(Q, 1, 2)  # [ b , sample_num , dim_k]
+        V = torch.bmm(
+            self.W_v.unsqueeze(0).expand(x_shape[0], self.dim_k,
+                                         self.feature_size), x_t)
+        V = torch.transpose(V, 1, 2)  # [b , sample_num , dim_k]
+        K = torch.bmm(
+            self.W_k.unsqueeze(0).expand(x_shape[0], self.dim_k,
+                                         self.feature_size), x_t)
+        W = F.softmax(
+            torch.bmm(Q, K) /
+            (torch.sqrt(torch.tensor(self.dim_k).to(torch.float).cuda())),
+            dim=2)  # [b , sample_num , sample_num]
+        out = torch.bmm(W, V)  # [b , sample_num , dim_k]
+        out = torch.transpose(out, 1, 2)
+        out = out.view(x_shape[0], self.dim_k, x_shape[2], x_shape[3])
+        # print('Q.shape:', Q.size())
+        # print('K.shape:', K.size())
+        # print('V.shape:', V.size())
+        # print('W.shape:', W.size())
+        # print('out.shape:', out.size())
+        return x_ + out
 
 
 class StageBlock(nn.Module):
@@ -58,18 +167,12 @@ class StageBlock(nn.Module):
         self.RRB_1 = RRB(in_channels, 512)
         self.CAB = CAB(512)
         self.RRB_2 = RRB(512, 512)
-        if stage == 4:
-            self.upsample = None
-        else:
-            self.upsample = nn.Upsample(scale_factor=2, mode='bilinear')
+        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear')
 
     def forward(self, x1, x2):
         x1 = self.RRB_1(x1)
-        if self.upsample:
-            x2 = self.upsample(x2)
-        else:
-            f_size = x1.size()[2]
-            x2 = x2.repeat(1, 1, f_size, f_size)
+        x2 = self.upsample(x2)
+
         x1 = self.CAB(x1, x2)
         x1 = self.RRB_2(x1)
         return x1

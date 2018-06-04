@@ -17,10 +17,11 @@ import torchvision.models as models
 import torchvision.utils as vutils
 import yaml
 from tensorboardX import SummaryWriter
+import torch.nn.functional as F
 
 from hair_data import GeneralDataset, gen_transform_data_loader
 from HairNet import DFN
-from component.criterion import CrossEntropyLoss2d
+from component.criterion import CrossEntropyLoss2d, Multi_Scale_CrossEntropyLoss2d
 from component.metrics import Acc_score
 from tool_func import *
 
@@ -47,14 +48,29 @@ def main(arguments):
 
     # set other settings
     options = yaml.load(open(os.path.join(ROOT_DIR, 'options', args.options)))
+    shutil.copyfile(
+        os.path.join(ROOT_DIR, 'options', args.options),
+        os.path.join(save_log_dir, args.options))
     start_epoch = 0
     best_pick = 0
     acc_hist = Acc_score(options['query_label_names'])
 
     # build the model
-    model = DFN()
-    dummy_input = torch.rand(1, 3, 512, 512)
-    #writer.add_graph(model, (dummy_input))  # add the model
+    if options['add_fc'] is not None:
+        add_fc = options['add_fc']
+    else:
+        add_fc = False
+
+    if options['self_attention'] is not None:
+        self_attention = options['self_attention']
+    else:
+        self_attention = False
+    model = DFN(add_fc=add_fc, self_attention=self_attention, debug=args.debug)
+
+    # dummy_input = torch.rand(1, 3, 512, 512)
+    # model(dummy_input)
+    # exit(1)
+    # writer.add_graph(model, (dummy_input))  # add the model
     if options['arch'].startswith('alexnet') or options['arch'].startswith(
             'vgg'):
         model.features = nn.DataParallel(model.features, device_ids=device_ids)
@@ -65,7 +81,12 @@ def main(arguments):
     if args.debug:
         print(model)
 
-    criterion = CrossEntropyLoss2d().to(device)
+    # set loss function
+    if options['multi_scale_loss'] == True:
+        criterion = Multi_Scale_CrossEntropyLoss2d().to(device)
+    else:
+        criterion = CrossEntropyLoss2d().to(device)
+
     if options['optimizer'] == 'sgd':
         optimizer = torch.optim.SGD(
             model.parameters(),
@@ -190,7 +211,7 @@ def train(train_loader, model, criterion, optimizer, epoch):
             writer.add_image('input', unmold_input(input), global_step)
             writer.add_image('target', raw2image(target, if_max=False),
                              global_step)
-            writer.add_image('pred', raw2image(output), global_step)
+            writer.add_image('pred', raw2image(output[0]), global_step)
         if options['step_per_epoch'] != -1 and options['step_per_epoch'] <= i:
             print('end of epoch')
             break
@@ -213,10 +234,12 @@ def validata(test_loader, model, criterion):
             output = model(input)
             loss = criterion(output, target)
             losses.update(loss.item(), input.size(0))
+            pred = F.upsample(
+                output[0], size=target.size()[-2:], mode='bilinear')
+            pred = torch.argmax(pred, dim=1).cpu().detach().numpy()
             target = target.cpu().detach().numpy()
-            #print('target.shape', target.shape)
-            pred = torch.argmax(output, dim=1).cpu().detach().numpy()
-            #print('pred.shape', pred.shape)
+            # print('target.shape', target.shape)
+            # print('pred.shape', pred.shape)
             acc_hist.collect(target, pred)
 
             batch_time.update(time.time() - end)
@@ -241,6 +264,12 @@ def validata(test_loader, model, criterion):
     return f1_result['hair']
 
 
+def adjust_learning_rate(optimizer, epoch):
+    lr = options['lr_base'] * ((1 - options['lr_decay'])**(epoch // 10))
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lr
+
+
 if __name__ == '__main__':
     import warnings
     parser = argparse.ArgumentParser(
@@ -249,11 +278,10 @@ if __name__ == '__main__':
         'options', type=str, help='train options name | xxx.yaml')
     parser.add_argument('--resume', default='', type=str, metavar='PATH')
     parser.add_argument('--pretrain', default=True)
-    parser.add_argument('--debug', type=bool, default=False)
     parser.add_argument('--log_dir', type=str, default='logs')
     parser.add_argument('--gpu_ids', type=int, nargs='*')
+    parser.add_argument('--debug', type=str2bool, nargs='?', default=False)
     args = parser.parse_args()
-
     if not args.debug:
         warnings.filterwarnings("ignore")
     main(args)

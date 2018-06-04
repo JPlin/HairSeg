@@ -10,6 +10,7 @@ import torch
 import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import torch.nn.parallel
+import torch.nn.functional as F
 import torchvision.models as models
 import matplotlib.pyplot as plt
 
@@ -103,7 +104,16 @@ def main():
             input, target = torch.from_numpy(input).to(
                 torch.float).to(device), torch.from_numpy(labels).to(
                     torch.long).to(device)
+
+            # get and deal with output
             output = model(input)
+            if type(output) == list:
+                output = output[0]
+
+            if output.size()[-1] < target.size()[-1]:
+                output = F.upsample(
+                    output, size=target.size()[-2:], mode='bilinear')
+
             target = target.cpu().detach().numpy()
             pred = torch.argmax(output, dim=1).cpu().detach().numpy()
             acc_hist_all.collect(target, pred)
