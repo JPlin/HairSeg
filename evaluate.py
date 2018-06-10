@@ -2,6 +2,7 @@ import argparse
 import os
 import sys
 import time
+import yaml
 
 import warnings
 warnings.simplefilter("ignore", UserWarning)
@@ -30,6 +31,8 @@ parser.add_argument(
 parser.add_argument('--batch_size', required=True, type=int, help='batch_size')
 parser.add_argument('--save', type=bool, help='save or visualize')
 parser.add_argument('--gpu_ids', type=int, nargs='*')
+parser.add_argument(
+    '--data_settings', default='aug_512_0.6_multi_person', type=str)
 args = parser.parse_args()
 
 
@@ -49,6 +52,14 @@ def main():
     save_dir = os.path.join(ROOT_DIR, 'evaluate_' + args.evaluate_name)
     os.makedirs(save_dir, exist_ok=True)
 
+    # set options path
+    option_path = os.path.join('logs', args.model_name,
+                               args.model_name + '.yaml')
+    if not os.path.exists(option_path):
+        print('options path {} is not exists.'.format(option_path))
+        sys.exit(1)
+    options = yaml.load(open(option_path))
+
     # check model path
     model_path = os.path.join('logs', args.model_name, 'checkpoint.pth')
     if not os.path.exists(model_path):
@@ -56,7 +67,16 @@ def main():
         sys.exit(1)
 
     # build the model
-    model = DFN()
+    if options['add_fc'] is not None:
+        add_fc = options['add_fc']
+    else:
+        add_fc = False
+
+    if options['self_attention'] is not None:
+        self_attention = options['self_attention']
+    else:
+        self_attention = False
+    model = DFN(add_fc=add_fc, self_attention=self_attention)
     model = nn.DataParallel(model, device_ids=device_ids)
 
     # loading checkpoint
@@ -67,7 +87,7 @@ def main():
         model_path, checkpoint['epoch']))
 
     test_ds = get_helen_test_data(
-        ['hair'], aug_setting_name='aug_512_0.6_multi_person')
+        ['hair'], aug_setting_name=args.data_settings)
 
     # ------ begin evaluate
 
@@ -87,10 +107,12 @@ def main():
         image_names = []
         data_len = len(test_ds.image_ids)
         for idx, image_id in enumerate(test_ds.image_ids):
-            if batch_index == 0:
-                batch = np.zeros((args.batch_size, 512, 512, 3))
-                labels = np.zeros((args.batch_size, 512, 512))
             image = test_ds.load_image(image_id)
+            if batch_index == 0:
+                batch = np.zeros((args.batch_size, image.shape[0],
+                                  image.shape[1], 3))
+                labels = np.zeros((args.batch_size, image.shape[0],
+                                   image.shape[1]))
             batch[batch_index] = (image / 255 - mean) / std
             labels[batch_index] = test_ds.load_labels(image_id)
             image_names.append(

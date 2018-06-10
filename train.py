@@ -21,7 +21,7 @@ import torch.nn.functional as F
 
 from hair_data import GeneralDataset, gen_transform_data_loader
 from HairNet import DFN
-from component.criterion import CrossEntropyLoss2d, Multi_Scale_CrossEntropyLoss2d
+from component.criterion import *
 from component.metrics import Acc_score
 from tool_func import *
 
@@ -84,6 +84,8 @@ def main(arguments):
     # set loss function
     if options['multi_scale_loss'] == True:
         criterion = Multi_Scale_CrossEntropyLoss2d().to(device)
+    elif options['floss'] is not None and options['floss'] == True:
+        criterion = Fscore_Loss().to(device)
     else:
         criterion = CrossEntropyLoss2d().to(device)
 

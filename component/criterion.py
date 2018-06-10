@@ -40,25 +40,30 @@ class Multi_Scale_CrossEntropyLoss2d(nn.Module):
 
 
 class Fscore_Loss(nn.Module):
+    '''
+    this method will be calculated on cpu , not gpu
+    '''
+
     def __init__(self, bias=1):
         super(Fscore_Loss, self).__init__()
-        self.bias = bias
-        self.softmax = nn.LogSoftmax()
+        self.bias = torch.tensor(bias).to(torch.float)
 
-    def forward(self, outpus, target):
+    def forward(self, outputs, targets):
         '''
         ouptus: [b , c,  h , w] if outpus are multi scale, calculate multi loss
         targets: [b , h  , w]
         '''
         total_loss = 0
-        target_size = targets.size()[:-2]
+        targets = targets.cpu()
+        target_size = targets.size()[-2:]
         if type(outputs) == list:
             for output in outputs:
+                output = output.cpu()
                 output = F.upsample(output, size=target_size, mode='bilinear')
-                total_loss += self.floss(self.softmax(output), targets)
+                total_loss += self.floss(F.softmax(output, dim=1), targets)
         else:
             output = F.upsample(outputs, size=target_size, mode='bilinear')
-            total_loss += self.floss(self.softmax(output), targets)
+            total_loss += self.floss(F.softmax(output, dim=1), targets)
         return total_loss
 
     def floss(self, output, target):
@@ -66,13 +71,14 @@ class Fscore_Loss(nn.Module):
         output: [0-1] , [b ,c , h , w]
         target: [0 , 1] , [b , h ,w]
         '''
-        target.unsqueeze_(1)
+        target = target.unsqueeze(1)
+        target = target.to(torch.long)
         one_hot = torch.FloatTensor(
-            target.size(0), 2, target.size(2), target.size(3)).zero_().cuda()
-        target = one_hot.scatter_(1, target.data, 1)  # [b , c, h , w]
-        print('target.size()', target.size())
-        TP = torch.sum(output * target)
-        FP = torch.sum(output * (1 - target))
-        FN = torch.sum((1 - output) * target)
+            target.size(0), 2, target.size(2), target.size(3)).zero_()
+        target_ = one_hot.scatter_(1, target.data,
+                                   1).to(torch.float)  # [b , c, h , w]
+        TP = torch.sum(output * target_)
+        FP = torch.sum(output * (1 - target_))
+        FN = torch.sum((1 - output) * target_)
         H = self.bias**2 * (TP + FN) + (TP + FP) + 1e-10
-        return (1 + self.bias**2) / H
+        return (1 + self.bias**2) * TP / H

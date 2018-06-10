@@ -26,11 +26,13 @@ class DFN(nn.Module):
         self.res_4 = resnet101.layer4
 
         # for normal
-        self.down_channel = ConvLayer(2048, 128, kernel_size=1, stride=1)
+        self.down_channel = ConvLayer(
+            2048, 128, kernel_size=1, stride=1)  # choose 128 or 512
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
 
         # for fc
         if self.add_fc:
+            self.down_channel = ConvLayer(2048, 128, kernel_size=1, stride=1)
             self.fc1 = ConvLayer(
                 128 * 16 * 16, 1024 * 2, kernel_size=1, stride=1)
             self.fc2 = ConvLayer(
@@ -38,12 +40,11 @@ class DFN(nn.Module):
 
         # for self_attention
         if self.self_attention:
-            sample_num = 8 * 8
             feature_size = 512
             dim_k = feature_size
             self.down_channel_attention = ConvLayer(
                 2048, feature_size, kernel_size=3, stride=2)
-            self.RM = RelationModule(sample_num, feature_size, dim_k)
+            self.RM = RelationModule(feature_size, dim_k)
 
         self.stage_1 = StageBlock(1)
         self.score_map_1 = ConvLayer(512, 2, kernel_size=1, stride=1)
@@ -79,10 +80,11 @@ class DFN(nn.Module):
             x_fc = self.down_channel_attention(x_4)
             x_gp = self.RM(x_fc)
         else:
-            x_gp = self.avg_pool(x_4)
-            # if flatten reshape two [b , c , h ,w ]
+            x_gp = self.down_channel(x_4)
+            x_gp = self.avg_pool(x_gp)
+            # if flatten reshape to [b , c , h ,w ]
             f_size = x_4.size()[2]
-            x_gp = x_gp.repeat(1, 1, f_size, f_size)
+            x_gp = x_gp.repeat(1, 1, f_size // 2, f_size // 2)
 
         x = self.stage_4(x_4, x_gp)
         score_4 = self.score_map_4(x)
@@ -105,9 +107,8 @@ class DFN(nn.Module):
 
 
 class RelationModule(nn.Module):
-    def __init__(self, sample_num, feature_size, dim_k):
+    def __init__(self, feature_size, dim_k):
         super(RelationModule, self).__init__()
-        self.sample_num = sample_num
         self.feature_size = feature_size
         self.dim_k = dim_k
         self.W_v = nn.Parameter(torch.Tensor(dim_k, feature_size))
@@ -137,8 +138,7 @@ class RelationModule(nn.Module):
             self.W_k.unsqueeze(0).expand(x_shape[0], self.dim_k,
                                          self.feature_size), x_t)
         W = F.softmax(
-            torch.bmm(Q, K) /
-            (torch.sqrt(torch.tensor(self.dim_k).to(torch.float).cuda())),
+            torch.bmm(Q, K) / (self.dim_k**0.5),
             dim=2)  # [b , sample_num , sample_num]
         out = torch.bmm(W, V)  # [b , sample_num , dim_k]
         out = torch.transpose(out, 1, 2)
@@ -239,3 +239,47 @@ class ConvLayer(nn.Module):
         out = self.reflection_pad(x)
         out = self.conv2d(out)
         return out
+
+
+class Self_Attn(nn.Module):
+    """ Self attention Layer"""
+
+    def __init__(self, in_dim, activation):
+        super(Self_Attn, self).__init__()
+        self.chanel_in = in_dim
+        self.activation = activation
+
+        self.query_conv = nn.Conv2d(
+            in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
+        self.key_conv = nn.Conv2d(
+            in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
+        self.value_conv = nn.Conv2d(
+            in_channels=in_dim, out_channels=in_dim, kernel_size=1)
+        self.gamma = nn.Parameter(torch.zeros(1))
+
+        self.softmax = nn.Softmax(dim=-1)  #
+
+    def forward(self, x):
+        """
+            inputs :
+                x : input feature maps( B X C X W X H)
+            returns :
+                out : self attention value + input feature 
+                attention: B X N X N (N is Width*Height)
+        """
+        m_batchsize, C, width, height = x.size()
+        proj_query = self.query_conv(x).view(m_batchsize,
+                                             -1, width * height).permute(
+                                                 0, 2, 1)  # B X CX(N)
+        proj_key = self.key_conv(x).view(m_batchsize, -1,
+                                         width * height)  # B X C x (*W*H)
+        energy = torch.bmm(proj_query, proj_key)  # transpose check
+        attention = self.softmax(energy)  # BX (N) X (N)
+        proj_value = self.value_conv(x).view(m_batchsize, -1,
+                                             width * height)  # B X C X N
+
+        out = torch.bmm(proj_value, attention.permute(0, 1, 2))
+        out = out.view(m_batchsize, C, width, height)
+
+        out = self.gamma * out + x
+        return out, attention
