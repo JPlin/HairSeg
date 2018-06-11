@@ -17,7 +17,8 @@ class RandomCrop(object):
             self.output_size = output_size
 
     def __call__(self, sample):
-        image, label = sample['image'], sample['label']
+        image, label, x_pos, y_pos = sample['image'], sample['label'], sample[
+            'x_pos'], sample['y_pos']
 
         h, w = image.shape[:2]
         new_h, new_w = self.output_size
@@ -26,7 +27,11 @@ class RandomCrop(object):
         left = np.random.randint(0, w - new_w)
         image = image[top:top + new_h, left:left + new_w]
         label = label[top:top + new_h, left:left + new_w]
-        return {'image': image, 'label': label}
+        if x_pos is not None:
+            x_pos = x_pos[top:top + new_h, left:left + new_w]
+        if y_pos is not None:
+            y_pos = y_pos[top:top + new_h, left:left + new_w]
+        return {'image': image, 'label': label, 'x_pos': x_pos, 'y_pos': y_pos}
 
 
 class Rescale(object):
@@ -35,24 +40,31 @@ class Rescale(object):
         self.output_size = output_size
 
     def __call__(self, sample):
-        image, label = sample['image'], sample['label']
+        image, label, x_pos, y_pos = sample['image'], sample['label'], sample[
+            'x_pos'], sample['y_pos']
 
         h, w = image.shape[:2]
         if isinstance(self.output_size, int):
+            output_size = max(self.output_size + random.randint(-400, 400),
+                              520)
             if h > w:
-                new_h, new_w = self.output_size * h / w, self.output_size
+                new_h, new_w = output_size * h / w, output_size
             else:
-                new_h, new_w = self.output_size, self.output_size * w / h
+                new_h, new_w = output_size, output_size * w / h
         else:
             new_h, new_w = self.output_size
 
-        new_h, new_w = int(new_h), int(new_w)
+        new_shape = (int(new_h), int(new_w))
 
-        img = transform.resize(image, (new_h, new_w))
+        image = transform.resize(image, new_shape)
         label = transform.resize(
-            label.astype(np.float), (new_h, new_w), order=0,
-            mode='reflect').astype(np.uint8)
-        return {'image': img, 'label': label}
+            label.astype(np.float), new_shape, order=0, mode='reflect').astype(
+                np.uint8)
+        if x_pos is not None:
+            x_pos = transform.resize(x_pos, new_shape)
+        if y_pos is not None:
+            y_pos = transform.resize(y_pos, new_shape)
+        return {'image': image, 'label': label, 'x_pos': x_pos, 'y_pos': y_pos}
 
 
 class Exposure(object):
@@ -61,7 +73,8 @@ class Exposure(object):
         self.adjust_gamma = adjust_gamma
 
     def __call__(self, sample):
-        image, label = sample['image'], sample['label']
+        image, label, x_pos, y_pos = sample['image'], sample['label'], sample[
+            'x_pos'], sample['y_pos']
 
         if self.adjust_gamma:
             gamma = math.exp(max(-1.6, min(1.6, random.normalvariate(0, 0.8))))
@@ -70,7 +83,7 @@ class Exposure(object):
         if random.uniform(0, 1) < self.grey_ratio:
             image = color.rgb2gray(image)
             image = np.stack([image] * 3, -1)
-        return {"image": image, "label": label}
+        return {'image': image, 'label': label, 'x_pos': x_pos, 'y_pos': y_pos}
 
 
 class Normalize(object):
@@ -79,16 +92,22 @@ class Normalize(object):
         self.std = std
 
     def __call__(self, sample):
-        image, label = sample['image'], sample['label']
+        image, label, x_pos, y_pos = sample['image'], sample['label'], sample[
+            'x_pos'], sample['y_pos']
         image = (image - self.mean) / self.std
-        return {"image": image, "label": label}
+        return {'image': image, 'label': label, 'x_pos': x_pos, 'y_pos': y_pos}
 
 
 class ToTensor(object):
     def __call__(self, sample):
-        image, label = sample['image'], sample['label']
+        image, label, x_pos, y_pos = sample['image'], sample['label'], sample[
+            'x_pos'], sample['y_pos']
+        if x_pos is not None and y_pos is not None:
+            x_pos = np.expand_dims(x_pos, -1)
+            y_pos = np.expand_dims(y_pos, -1)
+            image = np.concatenate((image, x_pos, y_pos), -1)
         image = image.transpose((2, 0, 1))
         return {
             'image': torch.from_numpy(image).to(torch.float),
-            'label': torch.from_numpy(label).to(torch.long)
+            'label': torch.from_numpy(label).to(torch.long),
         }

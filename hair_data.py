@@ -1,6 +1,7 @@
 import os
 import sys
 import numpy as np
+import pickle
 
 from matplotlib import pyplot as plt
 import torch
@@ -35,10 +36,14 @@ class GeneralDataset(Dataset):
         self.transform = transform
         if mode == 'train':
             self.raw_dataset = self.gen_training_data(self.query_label_names,
-                                                      self.aug_setting_name)
+                                                      self.aug_setting_name,
+                                                      options.get(
+                                                          'dataset_names', []))
         else:
             self.raw_dataset = self.gen_testing_data(self.query_label_names,
-                                                     self.aug_setting_name)
+                                                     self.aug_setting_name,
+                                                     options.get(
+                                                         'dataset_names', []))
         image_list = list(range(len(self.raw_dataset)))
         if from_to_ratio is not None:
             fr = int(from_to_ratio[0] * len(self.raw_dataset))
@@ -55,71 +60,63 @@ class GeneralDataset(Dataset):
         im = self.raw_dataset.load_image(image_id)
         label = self.raw_dataset.load_labels(image_id)
 
-        res = {'image': im, 'label': label}
+        im_info = self.raw_dataset[image_id]['image_path']
+        x_pos_map = None
+        y_pos_map = None
+        pos_map_path = im_info.replace('.jpg', '.pk').replace(
+            'images', 'positions')
+        if os.path.exists(pos_map_path):
+            pos_map = pickle.load(open(pos_map_path, 'rb'))
+            x_pos_map, y_pos_map = pos_map['x_map'], pos_map['y_map']
+
+        res = {
+            'image': im,
+            'label': label,
+            'x_pos': x_pos_map,
+            'y_pos': y_pos_map
+        }
         if self.transform:
             res = self.transform(res)
         return res
 
     def gen_training_data(self,
                           query_label_names,
-                          aug_setting_name='aug_512_0.8'):
-        datasets = [
-            ps.Dataset(
-                'HELENRelabeled',
-                category='train',
-                aug_ids=[0, 1, 2],
-                aug_setting_name=aug_setting_name,
-                query_label_names=query_label_names),
-            ps.Dataset(
-                'MultiPIE',
-                category='train',
-                aug_ids=[0, 1, 2],
-                aug_setting_name=aug_setting_name,
-                query_label_names=query_label_names),
-            ps.Dataset(
-                'HangYang',
-                category='train',
-                aug_ids=[0, 1, 2],
-                aug_setting_name=aug_setting_name,
-                query_label_names=query_label_names),
-            ps.Dataset(
-                'Portrait724',
-                category='train',
-                aug_ids=[0, 1, 2],
-                aug_setting_name=aug_setting_name,
-                query_label_names=query_label_names),
-        ]
+                          aug_setting_name='aug_512_0.8',
+                          dataset_names=[]):
+        datasets = []
+        if len(dataset_names) == 0:
+            dataset_names = [
+                'HELENRelabeled', 'MultiPIE', 'HangYang', 'Portrait724'
+            ]
+
+        for dataset_name in dataset_names:
+            datasets.append(
+                ps.Dataset(
+                    dataset_name,
+                    category='train',
+                    aug_ids=[0, 1, 2, 3],
+                    aug_setting_name=aug_setting_name,
+                    query_label_names=query_label_names))
         return ps.CombinedDataset(datasets)
 
     def gen_testing_data(self,
                          query_label_names,
-                         aug_setting_name='aug_512_0.8'):
-        datasets = [
-            ps.Dataset(
-                'HELENRelabeled',
-                category='test',
-                aug_ids=[0],
-                aug_setting_name=aug_setting_name,
-                query_label_names=query_label_names),
-            ps.Dataset(
-                'MultiPIE',
-                category='test',
-                aug_ids=[0],
-                aug_setting_name=aug_setting_name,
-                query_label_names=query_label_names),
-            ps.Dataset(
-                'HangYang',
-                category='test',
-                aug_ids=[0],
-                aug_setting_name=aug_setting_name,
-                query_label_names=query_label_names),
-            ps.Dataset(
-                'Portrait724',
-                category='test',
-                aug_ids=[0],
-                aug_setting_name=aug_setting_name,
-                query_label_names=query_label_names),
-        ]
+                         aug_setting_name='aug_512_0.8',
+                         dataset_names=[]):
+        datasets = []
+        if len(dataset_names) == 0:
+            dataset_names = [
+                'HELENRelabeled', 'MultiPIE', 'HangYang', 'Portrait724'
+            ]
+
+        for dataset_name in dataset_names:
+            datasets.append(
+                ps.Dataset(
+                    dataset_name,
+                    category='test',
+                    aug_ids=[0],
+                    aug_setting_name=aug_setting_name,
+                    query_label_names=query_label_names))
         return ps.CombinedDataset(datasets)
 
 
@@ -145,6 +142,17 @@ def test_dataset(options):
     for i in range(len(ds)):
         sample = ds[i]
         print(i, sample['image'].size(), sample['label'].size())
+        image = np.transpose(sample['image'].numpy(), [1, 2, 0])
+        fig, axes = plt.subplots(ncols=4)
+        axes[0].imshow(image)
+        axes[0].set(title='image')
+        axes[1].imshow(sample['label'].numpy())
+        axes[1].set(title='ground-truth')
+        axes[2].imshow(sample['x_pos'].numpy())
+        axes[2].set(title='pos_map')
+        axes[3].imshow(sample['y_pos'].numpy())
+        axes[3].set(title='pos_map')
+        plt.show()
         if i == 3:
             break
 
@@ -178,12 +186,14 @@ def test_dataloader(options):
     for i_batch, sample_batch in enumerate(ds_loader):
         print(i_batch, sample_batch['image'].size(),
               sample_batch['label'].size())
+        '''
         if i_batch == 3:
             _show_batch(sample_batch)
             plt.axis('off')
             plt.ioff()
             plt.show()
             break
+        '''
 
 
 def gen_transform_data_loader(options,
@@ -191,21 +201,35 @@ def gen_transform_data_loader(options,
                               batch_size=1,
                               shuffle=True,
                               dataloader=True):
-    ds = GeneralDataset(
-        options,
-        mode=mode,
-        transform=transforms.Compose([Normalize(), ToTensor()])
-        if mode == 'test' else transforms.Compose([
+    # define composition of transforms
+    if mode == 'train':
+        _transforms = transforms.Compose([
             Exposure(options['grey_ratio']),
             Rescale(options['crop_size']),
             RandomCrop(options['im_size']),
             Normalize(),
             ToTensor(),
-        ]))
+        ])
+    elif mode == 'test':
+        if options.get('position_map', False):
+            _transforms = transforms.Compose([
+                Rescale(options['crop_size']),
+                RandomCrop(options['im_size']),
+                Normalize(),
+                ToTensor(),
+            ])
+        else:
+            _transforms = transforms.Compose([Normalize(), ToTensor()])
+
+    # define pytorch dataset
+    ds = GeneralDataset(options, mode=mode, transform=_transforms)
     print("=> generate data loader: mode({0}) , length({1})".format(
         mode, len(ds)))
+
+    # define pytorch dataloader
     ds_loader = DataLoader(
-        ds, batch_size=batch_size, shuffle=shuffle, num_workers=8)
+        ds, batch_size=batch_size, shuffle=shuffle, num_workers=12)
+
     if dataloader:
         return ds_loader
     else:
@@ -218,7 +242,9 @@ if __name__ == '__main__':
     from component.data_transforms import Rescale, RandomCrop, Exposure, ToTensor
     plt.ion()
     options = yaml.load(
-        open(os.path.join(ROOT_DIR, 'options', 'dfn_hairseg.yaml')))
+        open(
+            os.path.join(ROOT_DIR, 'options',
+                         'dfn_hairseg_attention_randomcrop.yaml')))
     print(options)
 
     #test_dataset(options)

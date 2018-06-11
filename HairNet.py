@@ -7,7 +7,7 @@ import numpy as np
 
 class DFN(nn.Module):
     def __init__(self,
-                 in_channels=3,
+                 in_channels=5,
                  out_channels=64,
                  add_fc=True,
                  self_attention=False,

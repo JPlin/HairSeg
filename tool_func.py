@@ -44,6 +44,9 @@ def unmold_input(tensor):
     mean = [0.485, 0.456, 0.406]
     std = [0.229, 0.224, 0.225]
 
+    if tensor.size()[1] > 3:
+        tensor = tensor[:, :3]
+
     if type(tensor) == torch.Tensor:
         p = tensor.cpu().detach().numpy()
         p = np.transpose(p, (0, 2, 3, 1))
