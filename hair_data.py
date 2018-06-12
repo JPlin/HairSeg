@@ -79,6 +79,11 @@ class GeneralDataset(Dataset):
             res = self.transform(res)
         return res
 
+    def get_info(self, idx):
+        image_id = self.image_ids[idx]
+        im_info = self.raw_dataset[image_id]
+        return im_info
+
     def gen_training_data(self,
                           query_label_names,
                           aug_setting_name='aug_512_0.8',

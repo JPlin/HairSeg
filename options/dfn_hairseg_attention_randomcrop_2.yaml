@@ -5,7 +5,7 @@ add_fc: False
 self_attention: True
 
 # train setting
-optimizer: sgd
+optimizer: rmsprop
 lr_base: 0.01
 lr_decay: 0.9
 momentum: 0.9

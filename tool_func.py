@@ -39,20 +39,29 @@ def check_paths(save_dir):
         sys.exit(1)
 
 
-def unmold_input(tensor):
+def unmold_input(tensor, keep_dims=False):
+    '''
+    input: numpy or torch.Tensor
+    keep_dims: output one sample , or all sample
+    output: numpy
+    '''
     # tensor: torch tensor
     mean = [0.485, 0.456, 0.406]
     std = [0.229, 0.224, 0.225]
 
-    if tensor.size()[1] > 3:
-        tensor = tensor[:, :3]
-
     if type(tensor) == torch.Tensor:
+        if tensor.size()[1] > 3:
+            tensor = tensor[:, :3]
         p = tensor.cpu().detach().numpy()
         p = np.transpose(p, (0, 2, 3, 1))
         p = p * std + mean
-        return p[0]
+        if keep_dims:
+            return p
+        else:
+            return p[0]
     else:
+        if tensor.shape[1] > 3:
+            tensor = tensor[:, :3]
         p = tensor * std + mean
         return p
 
