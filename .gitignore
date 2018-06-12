@@ -1,3 +1,4 @@
 .vscode
 evaluate_*
 logs
+__pycache__
