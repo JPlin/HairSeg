@@ -187,7 +187,7 @@ def evaluate_raw_dataset(model, dataset):
         print('Valiation: [{0}]\t'
               'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
               'Acc of f-score [{1}]'.format(
-                  len(test_ds), f1_result, batch_time=batch_time))
+                  len(dataset), f1_result, batch_time=batch_time))
 
 
 def evaluate_general_dataset(model, dataset):
@@ -271,7 +271,7 @@ def evaluate_general_dataset(model, dataset):
         print('Valiation: [{0}]\t'
               'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
               'Acc of f-score [{1}]'.format(
-                  len(test_ds), f1_result, batch_time=batch_time))
+                  len(dataset), f1_result, batch_time=batch_time))
 
 
 if __name__ == '__main__':
