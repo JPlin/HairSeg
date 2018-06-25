@@ -11,7 +11,8 @@ from component.data_transforms import Rescale, RandomCrop, Exposure, ToTensor, N
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 # where the real image placement
-sys.path.append('E:\\haya\\FaceData')
+#sys.path.append('E:\\haya\\FaceData')
+sys.path.append('\\\\MSRA-FACEDNN03\\haya\\FaceData')
 import Parsing as ps
 
 
