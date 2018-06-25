@@ -171,8 +171,8 @@ class StageBlock(nn.Module):
 
     def forward(self, x1, x2):
         x1 = self.RRB_1(x1)
-        x2 = self.upsample(x2)
-
+        #x2 = self.upsample(x2)
+        x2 = F.upsample_bilinear(x2, x1.size()[2:])
         x1 = self.CAB(x1, x2)
         x1 = self.RRB_2(x1)
         return x1
