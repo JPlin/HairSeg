@@ -35,9 +35,14 @@ class RandomCrop(object):
 
 
 class Rescale(object):
-    def __init__(self, output_size):
+    def __init__(self, output_size, random_scale=400):
+        '''
+        output_size: the min value between width and height 
+        random_scale: the minus and plus range value
+        '''
         assert isinstance(output_size, (int, tuple))
         self.output_size = output_size
+        self.random_scale = random_scale
 
     def __call__(self, sample):
         image, label, x_pos, y_pos = sample['image'], sample['label'], sample[
@@ -45,8 +50,8 @@ class Rescale(object):
 
         h, w = image.shape[:2]
         if isinstance(self.output_size, int):
-            output_size = max(self.output_size + random.randint(-400, 400),
-                              520)
+            output_size = max(self.output_size + random.randint(
+                -self.random_scale, self.random_scale), 520)
             if h > w:
                 new_h, new_w = output_size * h / w, output_size
             else:

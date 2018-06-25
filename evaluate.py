@@ -15,7 +15,7 @@ import torch.nn.functional as F
 import torchvision.models as models
 import matplotlib.pyplot as plt
 
-from hair_data import GeneralDataset, get_helen_test_data
+from hair_data import GeneralDataset, get_helen_test_data, gen_transform_data_loader
 from HairNet import DFN
 from component.metrics import Acc_score
 from tool_func import *
@@ -34,9 +34,12 @@ parser.add_argument('--gpu_ids', type=int, nargs='*')
 parser.add_argument(
     '--data_settings', default='aug_512_0.6_multi_person', type=str)
 args = parser.parse_args()
+device = None
+save_dir = None
 
 
 def main():
+    global device, save_dir
     # use the gpu or cpu as specificed
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device_ids = None
@@ -86,11 +89,22 @@ def main():
     print("=> loaded checkpoint '{}' (epoch {})".format(
         model_path, checkpoint['epoch']))
 
-    test_ds = get_helen_test_data(
-        ['hair'], aug_setting_name=args.data_settings)
+    if options.get('position_map', False):
+        test_ds = gen_transform_data_loader(
+            options,
+            mode='test',
+            batch_size=1,
+            shuffle=False,
+            dataloader=False)
+        evaluate_general_dataset(model, test_ds)
+    else:
+        test_ds = get_helen_test_data(
+            ['hair'], aug_setting_name=args.data_settings)
+        evaluate_raw_dataset(model, test_ds)
+
 
     # ------ begin evaluate
-
+def evaluate_raw_dataset(model, dataset):
     batch_time = AverageMeter()
     acc_hist_all = Acc_score(['hair'])
     acc_hist_single = Acc_score(['hair'])
@@ -105,18 +119,18 @@ def main():
         batch = None
         labels = None
         image_names = []
-        data_len = len(test_ds.image_ids)
-        for idx, image_id in enumerate(test_ds.image_ids):
-            image = test_ds.load_image(image_id)
+        data_len = len(dataset.image_ids)
+        for idx, image_id in enumerate(dataset.image_ids):
+            image = dataset.load_image(image_id)
             if batch_index == 0:
                 batch = np.zeros((args.batch_size, image.shape[0],
                                   image.shape[1], 3))
                 labels = np.zeros((args.batch_size, image.shape[0],
                                    image.shape[1]))
             batch[batch_index] = (image / 255 - mean) / std
-            labels[batch_index] = test_ds.load_labels(image_id)
+            labels[batch_index] = dataset.load_labels(image_id)
             image_names.append(
-                os.path.basename(test_ds[image_id]['image_path'])[:-4])
+                os.path.basename(dataset[image_id]['image_path'])[:-4])
             batch_index = batch_index + 1
             if batch_index < args.batch_size and idx != data_len - 1:
                 continue
@@ -173,7 +187,91 @@ def main():
         print('Valiation: [{0}]\t'
               'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
               'Acc of f-score [{1}]'.format(
-                  len(test_ds), f1_result, batch_time=batch_time))
+                  len(dataset), f1_result, batch_time=batch_time))
+
+
+def evaluate_general_dataset(model, dataset):
+    batch_time = AverageMeter()
+    acc_hist_all = Acc_score(['hair'])
+    acc_hist_single = Acc_score(['hair'])
+
+    # switch to evaluate mode
+    model.eval()
+    with torch.no_grad():
+        end = time.time()
+        batch_index = 0
+        batch = None
+        labels = None
+        image_names = []
+        data_len = len(dataset.image_ids)
+        for idx, image_id in enumerate(dataset.image_ids):
+            torch_tensor = dataset[idx]
+            input, target = torch_tensor['image'].numpy(), torch_tensor[
+                'label'].numpy()
+            if batch_index == 0:
+                batch = np.zeros((args.batch_size, input.shape[0],
+                                  input.shape[1], input.shape[2]))
+                labels = np.zeros((args.batch_size, target.shape[0],
+                                   target.shape[1]))
+            batch[batch_index] = input
+            labels[batch_index] = target
+            image_names.append(
+                os.path.basename(dataset.get_info(idx)['image_path'])[:-4])
+            batch_index = batch_index + 1
+            if batch_index < args.batch_size and idx != data_len - 1:
+                continue
+
+            batch_index = 0
+            input, target = torch.from_numpy(batch).to(
+                torch.float).to(device), torch.from_numpy(labels).to(
+                    torch.long).to(device)
+
+            # get and deal with output
+            output = model(input)
+            if type(output) == list:
+                output = output[0]
+
+            if output.size()[-1] < target.size()[-1]:
+                output = F.upsample(
+                    output, size=target.size()[-2:], mode='bilinear')
+
+            target = target.cpu().detach().numpy()
+            pred = torch.argmax(output, dim=1).cpu().detach().numpy()
+            acc_hist_all.collect(target, pred)
+            acc_hist_single.collect(target, pred)
+            f1_result = acc_hist_single.get_f1_results()['hair']
+
+            input_images = unmold_input(input, keep_dims=True)
+            for b in range(input_images.shape[0]):
+                print(input_images[b].shape, target[b].shape)
+                gt_blended = blend_labels(input_images[b], target[b])
+                predict_blended = blend_labels(input_images[b], pred[b])
+
+                fig, axes = plt.subplots(ncols=2)
+                axes[0].imshow(predict_blended)
+                axes[0].set(title=f'predict:%04f' % (f1_result))
+                axes[1].imshow(gt_blended)
+                axes[1].set(title='ground-truth')
+
+                if args.save:
+                    save_path = os.path.join(save_dir, f'%04f_%s.png' %
+                                             (f1_result, image_names[b]))
+                    plt.savefig(save_path)
+                else:
+                    plt.show()
+                plt.close(fig)
+                acc_hist_single.reset()
+
+            batch_time.update(time.time() - end)
+            end = time.time()
+
+            image_names = []
+
+        f1_result = acc_hist_all.get_f1_results()['hair']
+        print('Valiation: [{0}]\t'
+              'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+              'Acc of f-score [{1}]'.format(
+                  len(dataset), f1_result, batch_time=batch_time))
 
 
 if __name__ == '__main__':
