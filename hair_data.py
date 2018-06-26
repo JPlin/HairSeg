@@ -218,9 +218,9 @@ def gen_transform_data_loader(options,
     elif mode == 'test':
         if options.get('position_map', False):
             _transforms = transforms.Compose([
-                #Rescale(options['crop_size'], options.get('random_scale',
-                #                                          400)),
-                #RandomCrop(options['im_size']),
+                # Rescale(options['crop_size'], options.get('random_scale',
+                #                                           400)),
+                # RandomCrop(options['im_size']),
                 Normalize(),
                 ToTensor(),
             ])

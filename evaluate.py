@@ -228,9 +228,11 @@ def evaluate_general_dataset(model, dataset):
 
             # get and deal with output
             output = model(input)
-            if type(output) == list:
+            if type(output) == list:  # multi scale output
                 output = output[0]
-
+            print(
+                f'dealing with: input.shape{input.size()} output.shape{output.size()}'
+            )
             if output.size()[-1] < target.size()[-1]:
                 output = F.upsample(
                     output, size=target.size()[-2:], mode='bilinear')
@@ -243,7 +245,7 @@ def evaluate_general_dataset(model, dataset):
 
             input_images = unmold_input(input, keep_dims=True)
             for b in range(input_images.shape[0]):
-                print(input_images[b].shape, target[b].shape)
+                print('deal with', input_images[b].shape, target[b].shape)
                 gt_blended = blend_labels(input_images[b], target[b])
                 predict_blended = blend_labels(input_images[b], pred[b])
 
