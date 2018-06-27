@@ -140,7 +140,7 @@ def get_helen_test_data(query_label_names, aug_setting_name='aug_512_0.8'):
 def test_dataset(options):
     transform = transforms.Compose([
         Exposure(options['grey_ratio']),
-        Rescale(options['crop_size']),
+        Rescale(options['crop_size'], options.get('random_scale', 400)),
         RandomCrop(options['im_size']),
         ToTensor()
     ])
@@ -167,7 +167,7 @@ def test_dataset(options):
 def test_dataloader(options):
     transform = transforms.Compose([
         Exposure(options['grey_ratio']),
-        Rescale(options['crop_size']),
+        Rescale(options['crop_size'], options.get('random_scale', 400)),
         RandomCrop(options['im_size']),
         ToTensor()
     ])
@@ -211,7 +211,7 @@ def gen_transform_data_loader(options,
     if mode == 'train':
         _transforms = transforms.Compose([
             Exposure(options['grey_ratio']),
-            Rescale(options['crop_size']),
+            Rescale(options['crop_size'], options.get('random_scale', 400)),
             RandomCrop(options['im_size']),
             Normalize(),
             ToTensor(),
@@ -219,7 +219,8 @@ def gen_transform_data_loader(options,
     elif mode == 'test':
         if options.get('position_map', False):
             _transforms = transforms.Compose([
-                Rescale(options['crop_size']),
+                Rescale(options['crop_size'], options.get('random_scale',
+                                                          400)),
                 RandomCrop(options['im_size']),
                 Normalize(),
                 ToTensor(),
