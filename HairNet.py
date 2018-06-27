@@ -242,7 +242,7 @@ class ConvLayer(nn.Module):
 
 
 class Self_Attn(nn.Module):
-    """ Self attention Layer"""
+    """ Self attention Layer , scratch from github"""
 
     def __init__(self, in_dim, activation):
         super(Self_Attn, self).__init__()
