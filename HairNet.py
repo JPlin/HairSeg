@@ -11,7 +11,8 @@ class DFN(nn.Module):
                  out_channels=64,
                  add_fc=True,
                  self_attention=False,
-                 debug=False):
+                 debug=False,
+                 back_bone='resnet101'):
         super(DFN, self).__init__()
         self.add_fc = add_fc  # if flatten and fc the last stage
         self.self_attention = self_attention  # if add self attention
@@ -19,20 +20,36 @@ class DFN(nn.Module):
         self.conv1 = ConvLayer(
             in_channels, out_channels, kernel_size=3, stride=2)
         self.pool1 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        resnet101 = models.resnet101(pretrained=True)
-        self.res_1 = resnet101.layer1
-        self.res_2 = resnet101.layer2
-        self.res_3 = resnet101.layer3
-        self.res_4 = resnet101.layer4
+        if back_bone == 'resnet101':
+            resnet = models.resnet101(pretrained=True)
+            self.expand = 1
+        elif back_bone == 'resnet50':
+            resnet = models.resnet50(pretrained=True)
+            self.expand = 1
+        elif back_bone == 'resnet34':
+            resnet = models.resnet34(pretrained=True)
+            self.expand = 4
+        elif back_bone == 'resnet18':
+            resnet = models.resnet18(pretrained=True)
+            self.expand = 4
+        else:
+            raise "undefined backbone"
+
+        self.res_1 = resnet.layer1
+        self.res_2 = resnet.layer2
+        self.res_3 = resnet.layer3
+        self.res_4 = resnet.layer4
 
         # for normal
         self.down_channel = ConvLayer(
-            2048, 128, kernel_size=1, stride=1)  # choose 128 or 512
+            2048 / self.expand, 128, kernel_size=1,
+            stride=1)  # choose 128 or 512
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
 
         # for fc
         if self.add_fc:
-            self.down_channel = ConvLayer(2048, 128, kernel_size=1, stride=1)
+            self.down_channel = ConvLayer(
+                2048 / self.expand, 128, kernel_size=1, stride=1)
             self.fc1 = ConvLayer(
                 128 * 16 * 16, 1024 * 2, kernel_size=1, stride=1)
             self.fc2 = ConvLayer(
@@ -43,16 +60,16 @@ class DFN(nn.Module):
             feature_size = 512
             dim_k = feature_size
             self.down_channel_attention = ConvLayer(
-                2048, feature_size, kernel_size=3, stride=2)
+                2048 / self.expand, feature_size, kernel_size=3, stride=2)
             self.RM = RelationModule(feature_size, dim_k)
 
-        self.stage_1 = StageBlock(1)
+        self.stage_1 = StageBlock(1, self.expand)
         self.score_map_1 = ConvLayer(512, 2, kernel_size=1, stride=1)
-        self.stage_2 = StageBlock(2)
+        self.stage_2 = StageBlock(2, self.expand)
         self.score_map_2 = ConvLayer(512, 2, kernel_size=1, stride=1)
-        self.stage_3 = StageBlock(3)
+        self.stage_3 = StageBlock(3, self.expand)
         self.score_map_3 = ConvLayer(512, 2, kernel_size=1, stride=1)
-        self.stage_4 = StageBlock(4)
+        self.stage_4 = StageBlock(4, self.expand)
         self.score_map_4 = ConvLayer(512, 2, kernel_size=1, stride=1)
 
     def forward(self, x):
@@ -152,17 +169,17 @@ class RelationModule(nn.Module):
 
 
 class StageBlock(nn.Module):
-    def __init__(self, stage=1):
+    def __init__(self, stage=1, expand=1):
         super(StageBlock, self).__init__()
         assert stage in [1, 2, 3, 4]
         if stage == 1:
-            in_channels = 256
+            in_channels = 256 / expand
         elif stage == 2:
-            in_channels = 512
+            in_channels = 512 / expand
         elif stage == 3:
-            in_channels = 1024
+            in_channels = 1024 / expand
         elif stage == 4:
-            in_channels = 2048
+            in_channels = 2048 / expand
 
         self.RRB_1 = RRB(in_channels, 512)
         self.CAB = CAB(512)
@@ -239,6 +256,28 @@ class ConvLayer(nn.Module):
         out = self.reflection_pad(x)
         out = self.conv2d(out)
         return out
+
+
+class GroupNorm(nn.Module):
+    def __init__(self, num_features, num_groups=32, eps=1e-5):
+        super(GroupNorm, self).__init__()
+        self.weight = nn.Parameter(torch.ones(1, num_features, 1, 1))
+        self.bias = nn.Parameter(torch.zeros(1, num_features, 1, 1))
+        self.num_groups = num_groups
+        self.eps = eps
+
+    def forward(self, x):
+        N, C, H, W = x.size()
+        G = self.num_groups
+        assert C % G == 0
+
+        x = x.view(N, G, -1)
+        mean = x.mean(-1, keepdim=True)
+        var = x.var(-1, keepdim=True)
+
+        x = (x - mean) / (var + self.eps).sqrt()
+        x = x.view(N, C, H, W)
+        return x * self.weight + self.bias
 
 
 class Self_Attn(nn.Module):

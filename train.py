@@ -65,7 +65,11 @@ def main(arguments):
         self_attention = options['self_attention']
     else:
         self_attention = False
-    model = DFN(add_fc=add_fc, self_attention=self_attention, debug=args.debug)
+    model = DFN(
+        add_fc=add_fc,
+        self_attention=self_attention,
+        debug=args.debug,
+        back_bone=options['arch'])
 
     # dummy_input = torch.rand(1, 3, 512, 512)
     # model(dummy_input)

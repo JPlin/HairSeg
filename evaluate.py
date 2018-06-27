@@ -30,6 +30,8 @@ parser.add_argument(
     '--model_name', required=True, default='', type=str, metavar='model name')
 parser.add_argument('--batch_size', required=True, type=int, help='batch_size')
 parser.add_argument('--save', type=bool, help='save or visualize')
+parser.add_argument(
+    '--original', type=bool, help='evaluate on the original image')
 parser.add_argument('--gpu_ids', type=int, nargs='*')
 parser.add_argument(
     '--data_settings', default='aug_512_0.6_multi_person', type=str)
@@ -64,7 +66,7 @@ def main():
     options = yaml.load(open(option_path))
 
     # check model path
-    model_path = os.path.join('logs', args.model_name, 'checkpoint.pth')
+    model_path = os.path.join('logs', args.model_name, 'checkpoint_best.pth')
     if not os.path.exists(model_path):
         print('model path {} is not exists.'.format(model_path))
         sys.exit(1)
@@ -79,7 +81,11 @@ def main():
         self_attention = options['self_attention']
     else:
         self_attention = False
-    model = DFN(add_fc=add_fc, self_attention=self_attention)
+
+    model = DFN(
+        add_fc=add_fc,
+        self_attention=self_attention,
+        back_bone=options['arch'])
     model = nn.DataParallel(model, device_ids=device_ids)
 
     # loading checkpoint
@@ -95,7 +101,8 @@ def main():
             mode='test',
             batch_size=1,
             shuffle=False,
-            dataloader=False)
+            dataloader=False,
+            use_original=args.original)
         evaluate_general_dataset(model, test_ds)
     else:
         test_ds = get_helen_test_data(
