@@ -4,7 +4,7 @@ import torch
 import math
 import random
 from torchvision import transforms, utils
-from skimage import io, color, exposure, transform
+from skimage import io, color, exposure, transform, img_as_float
 
 
 class RandomCrop(object):
@@ -35,7 +35,7 @@ class RandomCrop(object):
 
 
 class Rescale(object):
-    def __init__(self, output_size, random_scale=400):
+    def __init__(self, output_size, random_scale=0):
         '''
         output_size: the min value between width and height 
         random_scale: the minus and plus range value
@@ -99,6 +99,8 @@ class Normalize(object):
     def __call__(self, sample):
         image, label, x_pos, y_pos = sample['image'], sample['label'], sample[
             'x_pos'], sample['y_pos']
+        if np.max(image) > 1:
+            image = img_as_float(image)
         image = (image - self.mean) / self.std
         return {'image': image, 'label': label, 'x_pos': x_pos, 'y_pos': y_pos}
 
@@ -107,6 +109,20 @@ class ToTensor(object):
     def __call__(self, sample):
         image, label, x_pos, y_pos = sample['image'], sample['label'], sample[
             'x_pos'], sample['y_pos']
+
+        # control the input image size not too large
+        h, w = image.shape[:2]
+        if h > 3000 or w > 3000:
+            resize_size = (int(h / 2), int(w / 2))
+            image = transform.resize(image, resize_size)
+            label = transform.resize(
+                label.astype(np.float), resize_size, order=0,
+                mode='reflect').astype(np.uint8)
+            if x_pos is not None:
+                x_pos = transform.resize(x_pos, resize_size)
+            if y_pos is not None:
+                y_pos = transform.resize(y_pos, resize_size)
+
         if x_pos is not None and y_pos is not None:
             x_pos = np.expand_dims(x_pos, -1)
             y_pos = np.expand_dims(y_pos, -1)

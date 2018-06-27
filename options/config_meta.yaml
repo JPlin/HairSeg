@@ -1,0 +1,27 @@
+# network
+arch: resnet101 # require
+multi_scale_loss: true # default false , use CSE
+add_fc: False # default true
+self_attention: True # default false
+
+# train setting
+optimizer: sgd # require [sgd , adam , rmsprop]
+lr_base: 0.01 # require
+lr_decay: 0.9 # require
+momentum: 0.9 # require
+epoch: 20 # require
+step_per_epoch: -1 # require , -1 means walk through all data
+validation_step: 10 # require
+batch_size: 28 # require
+weight_decay: 0.0001 # require
+
+# dataset setting
+im_size: 512 # require , output image size
+crop_size: 666 # require , rescale image size
+random_scale: 400 # default 400
+grey_ratio: 0.1 # default 
+query_label_names: [hair] # require , list of part names 
+aug_setting_name: aug_1.0_original # default  
+position_map: True # default False
+dataset_names: # default use all dataset
+  - HELENRelabeled

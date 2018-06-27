@@ -171,8 +171,8 @@ class StageBlock(nn.Module):
 
     def forward(self, x1, x2):
         x1 = self.RRB_1(x1)
-        x2 = self.upsample(x2)
-
+        #x2 = self.upsample(x2)
+        x2 = F.upsample_bilinear(x2, x1.size()[2:])
         x1 = self.CAB(x1, x2)
         x1 = self.RRB_2(x1)
         return x1
@@ -242,7 +242,7 @@ class ConvLayer(nn.Module):
 
 
 class Self_Attn(nn.Module):
-    """ Self attention Layer"""
+    """ Self attention Layer , scratch from github"""
 
     def __init__(self, in_dim, activation):
         super(Self_Attn, self).__init__()

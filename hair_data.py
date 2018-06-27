@@ -206,27 +206,30 @@ def gen_transform_data_loader(options,
                               mode='train',
                               batch_size=1,
                               shuffle=True,
-                              dataloader=True):
+                              dataloader=True,
+                              use_original=False):
     # define composition of transforms
+    transform_list = []
     if mode == 'train':
-        _transforms = transforms.Compose([
+        transform_list = [
             Exposure(options['grey_ratio']),
             Rescale(options['crop_size'], options.get('random_scale', 400)),
             RandomCrop(options['im_size']),
             Normalize(),
-            ToTensor(),
-        ])
+            ToTensor()
+        ]
     elif mode == 'test':
-        if options.get('position_map', False):
-            _transforms = transforms.Compose([
+        if options.get('position_map', False) and use_original:
+            transform_list = [
                 Rescale(options['crop_size'], options.get('random_scale',
                                                           400)),
                 RandomCrop(options['im_size']),
                 Normalize(),
-                ToTensor(),
-            ])
+                ToTensor()
+            ]
         else:
-            _transforms = transforms.Compose([Normalize(), ToTensor()])
+            transform_list = [Normalize(), ToTensor()]
+    _transforms = transforms.Compose(transform_list)
 
     # define pytorch dataset
     ds = GeneralDataset(options, mode=mode, transform=_transforms)
