@@ -3,6 +3,7 @@ arch: resnet101
 multi_scale_loss: true
 add_fc: False
 self_attention: True
+group_norm: True
 
 # train setting
 optimizer: sgd

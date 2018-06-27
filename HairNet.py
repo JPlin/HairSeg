@@ -11,7 +11,8 @@ class DFN(nn.Module):
                  out_channels=64,
                  add_fc=True,
                  self_attention=False,
-                 debug=False):
+                 debug=False,
+                 back_bone='resnet101'):
         super(DFN, self).__init__()
         self.add_fc = add_fc  # if flatten and fc the last stage
         self.self_attention = self_attention  # if add self attention
@@ -19,11 +20,19 @@ class DFN(nn.Module):
         self.conv1 = ConvLayer(
             in_channels, out_channels, kernel_size=3, stride=2)
         self.pool1 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        resnet101 = models.resnet101(pretrained=True)
-        self.res_1 = resnet101.layer1
-        self.res_2 = resnet101.layer2
-        self.res_3 = resnet101.layer3
-        self.res_4 = resnet101.layer4
+        if back_bone == 'resnet101':
+            resnet = models.resnet101(pretrained=True)
+        elif back_bone == 'resnet50':
+            resnet = models.resnet50(pretrained=True)
+        elif back_bone == 'resnet18':
+            resnet = models.resnet18(pretrained=True)
+        else:
+            raise "undefined backbone"
+
+        self.res_1 = resnet.layer1
+        self.res_2 = resnet.layer2
+        self.res_3 = resnet.layer3
+        self.res_4 = resnet.layer4
 
         # for normal
         self.down_channel = ConvLayer(
@@ -239,6 +248,28 @@ class ConvLayer(nn.Module):
         out = self.reflection_pad(x)
         out = self.conv2d(out)
         return out
+
+
+class GroupNorm(nn.Module):
+    def __init__(self, num_features, num_groups=32, eps=1e-5):
+        super(GroupNorm, self).__init__()
+        self.weight = nn.Parameter(torch.ones(1, num_features, 1, 1))
+        self.bias = nn.Parameter(torch.zeros(1, num_features, 1, 1))
+        self.num_groups = num_groups
+        self.eps = eps
+
+    def forward(self, x):
+        N, C, H, W = x.size()
+        G = self.num_groups
+        assert C % G == 0
+
+        x = x.view(N, G, -1)
+        mean = x.mean(-1, keepdim=True)
+        var = x.var(-1, keepdim=True)
+
+        x = (x - mean) / (var + self.eps).sqrt()
+        x = x.view(N, C, H, W)
+        return x * self.weight + self.bias
 
 
 class Self_Attn(nn.Module):
