@@ -1,5 +1,5 @@
 # network
-arch: resnet101
+arch: resnet18
 multi_scale_loss: true
 add_fc: False
 self_attention: True

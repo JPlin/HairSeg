@@ -22,10 +22,16 @@ class DFN(nn.Module):
         self.pool1 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         if back_bone == 'resnet101':
             resnet = models.resnet101(pretrained=True)
+            self.expand = 1
         elif back_bone == 'resnet50':
             resnet = models.resnet50(pretrained=True)
+            self.expand = 1
+        elif back_bone == 'resnet34':
+            resnet = models.resnet34(pretrained=True)
+            self.expand = 4
         elif back_bone == 'resnet18':
             resnet = models.resnet18(pretrained=True)
+            self.expand = 4
         else:
             raise "undefined backbone"
 
@@ -36,12 +42,14 @@ class DFN(nn.Module):
 
         # for normal
         self.down_channel = ConvLayer(
-            2048, 128, kernel_size=1, stride=1)  # choose 128 or 512
+            2048 / self.expand, 128, kernel_size=1,
+            stride=1)  # choose 128 or 512
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
 
         # for fc
         if self.add_fc:
-            self.down_channel = ConvLayer(2048, 128, kernel_size=1, stride=1)
+            self.down_channel = ConvLayer(
+                2048 / self.expand, 128, kernel_size=1, stride=1)
             self.fc1 = ConvLayer(
                 128 * 16 * 16, 1024 * 2, kernel_size=1, stride=1)
             self.fc2 = ConvLayer(
@@ -52,16 +60,16 @@ class DFN(nn.Module):
             feature_size = 512
             dim_k = feature_size
             self.down_channel_attention = ConvLayer(
-                2048, feature_size, kernel_size=3, stride=2)
+                2048 / self.expand, feature_size, kernel_size=3, stride=2)
             self.RM = RelationModule(feature_size, dim_k)
 
-        self.stage_1 = StageBlock(1)
+        self.stage_1 = StageBlock(1, self.expand)
         self.score_map_1 = ConvLayer(512, 2, kernel_size=1, stride=1)
-        self.stage_2 = StageBlock(2)
+        self.stage_2 = StageBlock(2, self.expand)
         self.score_map_2 = ConvLayer(512, 2, kernel_size=1, stride=1)
-        self.stage_3 = StageBlock(3)
+        self.stage_3 = StageBlock(3, self.expand)
         self.score_map_3 = ConvLayer(512, 2, kernel_size=1, stride=1)
-        self.stage_4 = StageBlock(4)
+        self.stage_4 = StageBlock(4, self.expand)
         self.score_map_4 = ConvLayer(512, 2, kernel_size=1, stride=1)
 
     def forward(self, x):
@@ -161,17 +169,17 @@ class RelationModule(nn.Module):
 
 
 class StageBlock(nn.Module):
-    def __init__(self, stage=1):
+    def __init__(self, stage=1, expand=1):
         super(StageBlock, self).__init__()
         assert stage in [1, 2, 3, 4]
         if stage == 1:
-            in_channels = 256
+            in_channels = 256 / expand
         elif stage == 2:
-            in_channels = 512
+            in_channels = 512 / expand
         elif stage == 3:
-            in_channels = 1024
+            in_channels = 1024 / expand
         elif stage == 4:
-            in_channels = 2048
+            in_channels = 2048 / expand
 
         self.RRB_1 = RRB(in_channels, 512)
         self.CAB = CAB(512)

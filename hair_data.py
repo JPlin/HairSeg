@@ -218,7 +218,7 @@ def gen_transform_data_loader(options,
             ToTensor()
         ]
     elif mode == 'test':
-        if options.get('position_map', False) and use_original:
+        if not use_original:
             transform_list = [
                 Rescale(options['crop_size'], options.get('random_scale',
                                                           400)),
