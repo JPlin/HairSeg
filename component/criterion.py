@@ -15,7 +15,7 @@ class CrossEntropyLoss2d(nn.Module):
         '''
         if type(outputs) == list:
             outputs = outputs[0]
-        target_size = targets.size()[:-2]
+        target_size = targets.size()[-2:]
         outputs = F.upsample(outputs, size=target_size, mode='bilinear')
         return self.loss(self.softmax(outputs), targets)
 

@@ -88,7 +88,7 @@ def main(arguments):
     # set loss function
     if options['multi_scale_loss'] == True:
         criterion = Multi_Scale_CrossEntropyLoss2d().to(device)
-    elif options['floss'] is not None and options['floss'] == True:
+    elif options.get('floss', False):
         criterion = Fscore_Loss().to(device)
     else:
         criterion = CrossEntropyLoss2d().to(device)
