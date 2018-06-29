@@ -1,9 +1,8 @@
 # network
 arch: resnet18
-multi_scale_loss: False
+multi_scale_loss: true
 add_fc: False
 self_attention: True
-group_norm: True
 
 # train setting
 optimizer: sgd
@@ -19,7 +18,6 @@ weight_decay: 0.0001
 # dataset setting
 im_size: 512
 crop_size: 666
-random_scale: 400
 grey_ratio: 0.1
 query_label_names: [hair]
 aug_setting_name: aug_1.0_original
