@@ -283,17 +283,17 @@ class GroupNorm(nn.Module):
 class Self_Attn(nn.Module):
     """ Self attention Layer , scratch from github"""
 
-    def __init__(self, in_dim, activation):
+    def __init__(self, feature_size, dim_k):
         super(Self_Attn, self).__init__()
-        self.chanel_in = in_dim
-        self.activation = activation
+        self.chanel_in = feature_size
+        self.dim_k = dim_k
 
         self.query_conv = nn.Conv2d(
-            in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
+            in_channels=feature_size, out_channels=dim_k, kernel_size=1)
         self.key_conv = nn.Conv2d(
-            in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
+            in_channels=feature_size, out_channels=dim_k, kernel_size=1)
         self.value_conv = nn.Conv2d(
-            in_channels=in_dim, out_channels=in_dim, kernel_size=1)
+            in_channels=feature_size, out_channels=feature_size, kernel_size=1)
         self.gamma = nn.Parameter(torch.zeros(1))
 
         self.softmax = nn.Softmax(dim=-1)  #
@@ -321,4 +321,4 @@ class Self_Attn(nn.Module):
         out = out.view(m_batchsize, C, width, height)
 
         out = self.gamma * out + x
-        return out, attention
+        return out  # , attention
