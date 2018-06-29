@@ -83,6 +83,7 @@ def main():
         self_attention = False
 
     model = DFN(
+        in_channels=5 if options.get('position_map', False) else 3,
         add_fc=add_fc,
         self_attention=self_attention,
         back_bone=options['arch'])

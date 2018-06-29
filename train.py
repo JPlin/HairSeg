@@ -66,6 +66,7 @@ def main(arguments):
     else:
         self_attention = False
     model = DFN(
+        in_channels=5 if options.get('position_map', False) else 3,
         add_fc=add_fc,
         self_attention=self_attention,
         debug=args.debug,
@@ -184,7 +185,7 @@ def train(train_loader, model, criterion, optimizer, epoch):
 
         if args.debug:
             print('output.size: {}, target.size: {} , loss.size: {}'.format(
-                output.size(), target.size(), loss.size()))
+                output[0].size() if type(output) == list else output.size(), target.size(), loss.size()))
 
         # measure accuracy and record loss
         losses.update(loss.item(), input.size(0))

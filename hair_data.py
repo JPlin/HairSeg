@@ -22,6 +22,7 @@ class GeneralDataset(Dataset):
                  from_to_ratio=None,
                  transform=None):
         super(GeneralDataset, self).__init__()
+        self.options = options
         if options:
             self.im_size = options['im_size']
             self.aug_setting_name = options['aug_setting_name']
@@ -65,7 +66,8 @@ class GeneralDataset(Dataset):
         y_pos_map = None
         pos_map_path = im_info.replace('.jpg', '.pk').replace(
             'images', 'positions')
-        if os.path.exists(pos_map_path):
+        if self.options.get('position_map',
+                            False) and os.path.exists(pos_map_path):
             pos_map = pickle.load(open(pos_map_path, 'rb'))
             x_pos_map, y_pos_map = pos_map['x_map'], pos_map['y_map']
 
