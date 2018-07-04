@@ -61,8 +61,8 @@ class DFN(nn.Module):
             dim_k = feature_size // 8
             self.down_channel_attention = ConvLayer(
                 2048 / self.expand, feature_size, kernel_size=3, stride=2)
-            #self.RM = RelationModule(feature_size, dim_k)
-            self.RM = Self_Attn(feature_size , dim_k)
+            self.RM = RelationModule(feature_size, dim_k)
+            #self.RM = Self_Attn(feature_size, dim_k)
 
         self.stage_1 = StageBlock(1, self.expand)
         self.score_map_1 = ConvLayer(512, 2, kernel_size=1, stride=1)
@@ -282,19 +282,20 @@ class GroupNorm(nn.Module):
 
 
 class Self_Attn(nn.Module):
-    """ Self attention Layer , scratch from github"""
+    """ Self attention Layer , scratch from github , use 1x1_conv as fc"""
 
-    def __init__(self, feature_size, dim_k):
+    def __init__(self, feature_size, dim_k, feature_size_out=None):
         super(Self_Attn, self).__init__()
+        self.channel_out = feature_size_out if feature_size_out is not None else feature_size
         self.chanel_in = feature_size
         self.dim_k = dim_k
 
         self.query_conv = nn.Conv2d(
-            in_channels=feature_size, out_channels=dim_k, kernel_size=1)
+            in_channels=channel_in, out_channels=dim_k, kernel_size=1)
         self.key_conv = nn.Conv2d(
-            in_channels=feature_size, out_channels=dim_k, kernel_size=1)
+            in_channels=channel_in, out_channels=dim_k, kernel_size=1)
         self.value_conv = nn.Conv2d(
-            in_channels=feature_size, out_channels=feature_size, kernel_size=1)
+            in_channels=channel_in, out_channels=channel_out, kernel_size=1)
         self.gamma = nn.Parameter(torch.zeros(1))
 
         self.softmax = nn.Softmax(dim=-1)  #
@@ -304,7 +305,11 @@ class Self_Attn(nn.Module):
             inputs :
                 x : input feature maps( B X C X W X H)
             returns :
-                out : self attention value + input feature 
+                out : 
+                    self attention value + input feature , B x C x W x H
+                    or
+                    self attention value , B x Channel_out x W x H
+                    depend on if the value of the feature_size_out equal to feature_size
                 attention: B X N X N (N is Width*Height)
         """
         m_batchsize, C, width, height = x.size()
@@ -319,7 +324,40 @@ class Self_Attn(nn.Module):
                                              width * height)  # B X C X N
 
         out = torch.bmm(proj_value, attention.permute(0, 1, 2))
-        out = out.view(m_batchsize, C, width, height)
+        out = out.view(m_batchsize, -1, width, height)
 
-        out = self.gamma * out + x
+        out = self.gamma * out
+
+        if self.chanel_in == self.channel_out:
+            out = out + x
         return out  # , attention
+
+
+class Multi_Self_Attn(nn.Module):
+    """apply multi self attention, based on self attention"""
+
+    def __init__(self, feature_size, dim_k=None, attn_nb=16):
+        if not feature_size % attn_nb == 0:
+            raise Exception, "feature_size cant't be divide by attention number"
+
+        dim_k = feature_size // 8 if dim_k is None else dim_k
+        self.attn_nb = attn_nb
+        self.attn_list = []
+        for i in range(attn_nb):
+            self.attn_list.append(
+                Self_Attn(
+                    feature_size, dim_k, feature_size_out=feature_size // 16))
+
+    def forward(self, x):
+        """
+            inputs: 
+                x : B x C x M x N
+            returns:
+                out: B x C x M x N 
+        """
+        attn_outs = []
+        for i in range(self.attn_nb):
+            attn = self.attn_list[i]
+            attn_outs.append(attn(x))  # B x C//attn_nb x M x N for each out
+        out = torch.cat(attn_outs, dim=1)
+        return out + x

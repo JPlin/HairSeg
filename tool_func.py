@@ -1,7 +1,9 @@
 import os
-import torch
-import numpy as np
 import shutil
+
+import numpy as np
+import torch
+from torch.optim import lr_scheduler
 
 
 class AverageMeter(object):
@@ -137,3 +139,19 @@ def str2bool(v):
         return False
     else:
         raise argparse.ArgumentTypeError('Boolean value expected.')
+
+
+def get_scheduler(optimizer, options, iterations=-1):
+    if 'lr_policy' not in options or options['lr_policy'] == 'constant':
+        scheduler = None
+    elif options['lr_policy'] == 'step':
+        scheduler = lr_scheduler.StepLR(
+            optimizer, step_size=options.get('step_size', 10))
+    elif options['lr_policy'] == 'decay':
+        scheduler = lr_scheduler.ExponentialLR(
+            optimizer, gamma=options.get('lr_decay', 0.95))
+    else:
+        return NotImplementedError(
+            'learning rate policy [%s] is not implemented',
+            hyperparameters['lr_policy'])
+    return scheduler

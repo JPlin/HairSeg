@@ -66,7 +66,7 @@ def main():
     options = yaml.load(open(option_path))
 
     # check model path
-    model_path = os.path.join('logs', args.model_name, 'checkpoint_best.pth')
+    model_path = os.path.join('logs', args.model_name, 'checkpoint.pth')
     if not os.path.exists(model_path):
         print('model path {} is not exists.'.format(model_path))
         sys.exit(1)
@@ -96,7 +96,7 @@ def main():
     print("=> loaded checkpoint '{}' (epoch {})".format(
         model_path, checkpoint['epoch']))
 
-    if options.get('position_map', False):
+    if options.get('position_map', False) or args.original:
         test_ds = gen_transform_data_loader(
             options,
             mode='test',
