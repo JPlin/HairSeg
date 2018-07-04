@@ -58,10 +58,11 @@ class DFN(nn.Module):
         # for self_attention
         if self.self_attention:
             feature_size = 512
-            dim_k = feature_size
+            dim_k = feature_size // 8
             self.down_channel_attention = ConvLayer(
                 2048 / self.expand, feature_size, kernel_size=3, stride=2)
-            self.RM = RelationModule(feature_size, dim_k)
+            #self.RM = RelationModule(feature_size, dim_k)
+            self.RM = Self_Attn(feature_size , dim_k)
 
         self.stage_1 = StageBlock(1, self.expand)
         self.score_map_1 = ConvLayer(512, 2, kernel_size=1, stride=1)
