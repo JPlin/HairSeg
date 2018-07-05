@@ -14,6 +14,7 @@ import torch.nn.parallel
 import torch.nn.functional as F
 import torchvision.models as models
 import matplotlib.pyplot as plt
+from skimage import io, transform
 
 from hair_data import GeneralDataset, get_helen_test_data, gen_transform_data_loader
 from HairNet import DFN
@@ -29,9 +30,18 @@ parser.add_argument(
 parser.add_argument(
     '--model_name', required=True, default='', type=str, metavar='model name')
 parser.add_argument('--batch_size', required=True, type=int, help='batch_size')
-parser.add_argument('--save', type=bool, help='save or visualize')
 parser.add_argument(
-    '--original', type=bool, help='evaluate on the original image')
+    '--save',
+    type=str2bool,
+    nargs='?',
+    default=False,
+    help='save or visualize')
+parser.add_argument(
+    '--original',
+    type=str2bool,
+    nargs='?',
+    default=False,
+    help='evaluate on the original image')
 parser.add_argument('--gpu_ids', type=int, nargs='*')
 parser.add_argument(
     '--data_settings', default='aug_512_0.6_multi_person', type=str)
@@ -126,9 +136,11 @@ def evaluate_raw_dataset(model, dataset):
         batch_index = 0
         batch = None
         labels = None
+        image_ids = []
         image_names = []
         data_len = len(dataset.image_ids)
         for idx, image_id in enumerate(dataset.image_ids):
+            # ------ start iteration
             image = dataset.load_image(image_id)
             if batch_index == 0:
                 batch = np.zeros((args.batch_size, image.shape[0],
@@ -137,39 +149,50 @@ def evaluate_raw_dataset(model, dataset):
                                    image.shape[1]))
             batch[batch_index] = (image / 255 - mean) / std
             labels[batch_index] = dataset.load_labels(image_id)
-            image_names.append(
-                os.path.basename(dataset[image_id]['image_path'])[:-4])
+            image_ids.append(image_id)
             batch_index = batch_index + 1
             if batch_index < args.batch_size and idx != data_len - 1:
                 continue
+            # ------ end iteration
 
             batch_index = 0
             input = batch.transpose((0, 3, 1, 2))
-            input, target = torch.from_numpy(input).to(
-                torch.float).to(device), torch.from_numpy(labels).to(
-                    torch.long).to(device)
+            input = torch.from_numpy(input).to(torch.float).to(device)
 
             # get and deal with output
             output = model(input)
             if type(output) == list:
                 output = output[0]
-
-            if output.size()[-1] < target.size()[-1]:
+            if output.size()[-1] < labels.shape[-1]:
                 output = F.upsample(
-                    output, size=target.size()[-2:], mode='bilinear')
+                    output, size=labels.shape[-2:], mode='bilinear')
+            output = torch.argmax(output, dim=1).cpu().detach().numpy()
 
-            target = target.cpu().detach().numpy()
-            pred = torch.argmax(output, dim=1).cpu().detach().numpy()
-            acc_hist_all.collect(target, pred)
-            acc_hist_single.collect(target, pred)
-            f1_result = acc_hist_single.get_f1_results()['hair']
-
+            # ------ start iteration
             input_images = unmold_input(batch)
-
             for b in range(input_images.shape[0]):
-                print(input_images[b].shape, target[b].shape)
-                gt_blended = blend_labels(input_images[b], target[b])
-                predict_blended = blend_labels(input_images[b], pred[b])
+                # get data
+                image_name = os.path.basename(
+                    dataset[image_ids[b]]['image_path'])[:-4]
+                ori_image = dataset.load_original_image(image_ids[b])
+                target = dataset.load_original_labels(image_ids[b])
+                tform_params = dataset.load_align_transform(image_ids[b])
+                pred = transform.warp(
+                    output[b],
+                    tform_params,
+                    output_shape=target.shape[:2],
+                    preserve_range=True)
+                pred = pred.astype(np.uint8)
+
+                # calculate result
+                acc_hist_all.collect(target, pred)
+                acc_hist_single.collect(target, pred)
+                f1_result = acc_hist_single.get_f1_results()['hair']
+
+                # visualize result
+                print(ori_image.shape, target.shape)
+                gt_blended = blend_labels(ori_image, target)
+                predict_blended = blend_labels(ori_image, pred)
 
                 fig, axes = plt.subplots(ncols=2)
                 axes[0].imshow(predict_blended)
@@ -186,10 +209,10 @@ def evaluate_raw_dataset(model, dataset):
                 plt.close(fig)
                 acc_hist_single.reset()
 
+            # ------ end iteration
             batch_time.update(time.time() - end)
             end = time.time()
-
-            image_names = []
+            image_ids = []
 
         f1_result = acc_hist_all.get_f1_results()['hair']
         print('Valiation: [{0}]\t'

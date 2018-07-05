@@ -71,7 +71,7 @@ class GeneralDataset(Dataset):
             pos_map = pickle.load(open(pos_map_path, 'rb'))
             x_pos_map, y_pos_map = pos_map['x_map'], pos_map['y_map']
         elif self.options.get('center_map', False):
-            x_pos_map, y_pos_map = self.get_xy_map(im_size)
+            x_pos_map, y_pos_map = self.get_xy_map(self.im_size)
 
         res = {
             'image': im,
