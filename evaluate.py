@@ -202,7 +202,7 @@ def evaluate_raw_dataset(model, dataset):
 
                 if args.save:
                     save_path = os.path.join(save_dir, f'%04f_%s.png' %
-                                             (f1_result, image_names[b]))
+                                             (f1_result, image_names))
                     plt.savefig(save_path)
                 else:
                     plt.show()
