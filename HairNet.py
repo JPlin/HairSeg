@@ -63,6 +63,7 @@ class DFN(nn.Module):
                 2048 / self.expand, feature_size, kernel_size=3, stride=2)
             self.RM = RelationModule(feature_size, dim_k)
             #self.RM = Self_Attn(feature_size, dim_k)
+            #self.RM = Multi_Self_Attn(feature_size , dim_k)
 
         self.stage_1 = StageBlock(1, self.expand)
         self.score_map_1 = ConvLayer(512, 2, kernel_size=1, stride=1)
@@ -287,15 +288,17 @@ class Self_Attn(nn.Module):
     def __init__(self, feature_size, dim_k, feature_size_out=None):
         super(Self_Attn, self).__init__()
         self.channel_out = feature_size_out if feature_size_out is not None else feature_size
-        self.chanel_in = feature_size
+        self.channel_in = feature_size
         self.dim_k = dim_k
 
         self.query_conv = nn.Conv2d(
-            in_channels=channel_in, out_channels=dim_k, kernel_size=1)
+            in_channels=self.channel_in, out_channels=dim_k, kernel_size=1)
         self.key_conv = nn.Conv2d(
-            in_channels=channel_in, out_channels=dim_k, kernel_size=1)
+            in_channels=self.channel_in, out_channels=dim_k, kernel_size=1)
         self.value_conv = nn.Conv2d(
-            in_channels=channel_in, out_channels=channel_out, kernel_size=1)
+            in_channels=self.channel_in,
+            out_channels=self.channel_out,
+            kernel_size=1)
         self.gamma = nn.Parameter(torch.zeros(1))
 
         self.softmax = nn.Softmax(dim=-1)  #
@@ -328,7 +331,7 @@ class Self_Attn(nn.Module):
 
         out = self.gamma * out
 
-        if self.chanel_in == self.channel_out:
+        if self.channel_in == self.channel_out:
             out = out + x
         return out  # , attention
 
@@ -337,8 +340,9 @@ class Multi_Self_Attn(nn.Module):
     """apply multi self attention, based on self attention"""
 
     def __init__(self, feature_size, dim_k=None, attn_nb=16):
+        super(Multi_Self_Attn, self).__init__()
         if not feature_size % attn_nb == 0:
-            raise Exception, "feature_size cant't be divide by attention number"
+            raise "feature_size cant't be divide by attention number"
 
         dim_k = feature_size // 8 if dim_k is None else dim_k
         self.attn_nb = attn_nb
@@ -347,6 +351,7 @@ class Multi_Self_Attn(nn.Module):
             self.attn_list.append(
                 Self_Attn(
                     feature_size, dim_k, feature_size_out=feature_size // 16))
+        self.attn_list = nn.ModuleList(self.attn_list)
 
     def forward(self, x):
         """
@@ -357,7 +362,7 @@ class Multi_Self_Attn(nn.Module):
         """
         attn_outs = []
         for i in range(self.attn_nb):
-            attn = self.attn_list[i]
-            attn_outs.append(attn(x))  # B x C//attn_nb x M x N for each out
+            attn_outs.append(
+                self.attn_list[i](x))  # B x C//attn_nb x M x N for each out
         out = torch.cat(attn_outs, dim=1)
         return out + x

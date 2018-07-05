@@ -70,6 +70,8 @@ class GeneralDataset(Dataset):
                             False) and os.path.exists(pos_map_path):
             pos_map = pickle.load(open(pos_map_path, 'rb'))
             x_pos_map, y_pos_map = pos_map['x_map'], pos_map['y_map']
+        elif self.options.get('center_map', False):
+            x_pos_map, y_pos_map = self.get_xy_map(im_size)
 
         res = {
             'image': im,
@@ -85,6 +87,23 @@ class GeneralDataset(Dataset):
         image_id = self.image_ids[idx]
         im_info = self.raw_dataset[image_id]
         return im_info
+
+    def get_xy_map(self, im_size):
+        '''
+            im_size: int or list
+            return: x_mesh , y_mesh : HxW , [-0.5 , 0.5] center at center.
+        '''
+        if type(im_size) == int:
+            h, w = im_size, im_size
+        elif type(im_size) == list:
+            h, w = im_size[0], im_size[1]
+        x_center, y_center = w / 2, h / 2
+        y_range = np.arange(h)
+        x_range = np.arange(w)
+        x_mesh, y_mesh = np.meshgrid(x_range, y_range)
+        x_mesh = (x_mesh - x_center) / w
+        y_mesh = (y_mesh - y_center) / h
+        return x_mesh, y_mesh
 
     def gen_training_data(self,
                           query_label_names,
