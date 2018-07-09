@@ -48,10 +48,11 @@ parser.add_argument(
 args = parser.parse_args()
 device = None
 save_dir = None
+options = None
 
 
 def main():
-    global device, save_dir
+    global device, save_dir, options
     # use the gpu or cpu as specificed
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device_ids = None
@@ -93,7 +94,8 @@ def main():
         self_attention = False
 
     model = DFN(
-        in_channels=5 if options.get('position_map', False) else 3,
+        in_channels=5 if options.get('position_map', False)
+        or options.get('center_map', False) else 3,
         add_fc=add_fc,
         self_attention=self_attention,
         back_bone=options['arch'])
@@ -123,12 +125,24 @@ def main():
 
     # ------ begin evaluate
 def evaluate_raw_dataset(model, dataset):
+    global options
     batch_time = AverageMeter()
     acc_hist_all = Acc_score(['hair'])
     acc_hist_single = Acc_score(['hair'])
 
     mean = [0.485, 0.456, 0.406]
     std = [0.229, 0.224, 0.225]
+
+    if options.get('center_map', False):
+        x_pos_map, y_pos_map = GeneralDataset.get_xy_map(
+            dataset.load_image(0).shape[0])
+        x_pos_map = np.expand_dims(x_pos_map, -1)
+        y_pos_map = np.expand_dims(y_pos_map, -1)
+        channel_size = 5
+    else:
+        x_pos_map, y_pos_map = None, None
+        channel_size = 3
+
     # switch to evaluate mode
     model.eval()
     with torch.no_grad():
@@ -144,10 +158,15 @@ def evaluate_raw_dataset(model, dataset):
             image = dataset.load_image(image_id)
             if batch_index == 0:
                 batch = np.zeros((args.batch_size, image.shape[0],
-                                  image.shape[1], 3))
+                                  image.shape[1], channel_size))
                 labels = np.zeros((args.batch_size, image.shape[0],
                                    image.shape[1]))
-            batch[batch_index] = (image / 255 - mean) / std
+            mold_image = (image / 255 - mean) / std
+            if x_pos_map is not None and y_pos_map is not None:
+                mold_image = np.concatenate((mold_image, x_pos_map, y_pos_map),
+                                            -1)
+
+            batch[batch_index] = mold_image
             labels[batch_index] = dataset.load_labels(image_id)
             image_ids.append(image_id)
             batch_index = batch_index + 1
@@ -169,7 +188,7 @@ def evaluate_raw_dataset(model, dataset):
             output = torch.argmax(output, dim=1).cpu().detach().numpy()
 
             # ------ start iteration
-            input_images = unmold_input(batch)
+            input_images = unmold_input(input, True)
             for b in range(input_images.shape[0]):
                 # get data
                 image_name = os.path.basename(
@@ -202,7 +221,7 @@ def evaluate_raw_dataset(model, dataset):
 
                 if args.save:
                     save_path = os.path.join(save_dir, f'%04f_%s.png' %
-                                             (f1_result, image_names))
+                                             (f1_result, image_name))
                     plt.savefig(save_path)
                 else:
                     plt.show()

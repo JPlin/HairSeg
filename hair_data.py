@@ -88,7 +88,8 @@ class GeneralDataset(Dataset):
         im_info = self.raw_dataset[image_id]
         return im_info
 
-    def get_xy_map(self, im_size):
+    @staticmethod
+    def get_xy_map(im_size):
         '''
             im_size: int or list
             return: x_mesh , y_mesh : HxW , [-0.5 , 0.5] center at center.
@@ -233,7 +234,7 @@ def gen_transform_data_loader(options,
     if mode == 'train':
         transform_list = [
             Exposure(options['grey_ratio']),
-            Rescale(options['crop_size'], options.get('random_scale', 400)),
+            Rescale(options['crop_size'], options.get('random_scale', 0)),
             RandomCrop(options['im_size']),
             Normalize(),
             ToTensor()
