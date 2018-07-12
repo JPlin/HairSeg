@@ -45,6 +45,12 @@ parser.add_argument(
 parser.add_argument('--gpu_ids', type=int, nargs='*')
 parser.add_argument(
     '--data_settings', default='aug_512_0.6_multi_person', type=str)
+parser.add_argument(
+    '--tform_back',
+    type=str2bool,
+    nargs='?',
+    default=True,
+    help='evaluate on transform back')
 args = parser.parse_args()
 device = None
 save_dir = None
@@ -133,15 +139,19 @@ def evaluate_raw_dataset(model, dataset):
     mean = [0.485, 0.456, 0.406]
     std = [0.229, 0.224, 0.225]
 
+    x_pos_map, y_pos_map, g_map = None, None, None
+    channel_size = 3
     if options.get('center_map', False):
         x_pos_map, y_pos_map = GeneralDataset.get_xy_map(
             dataset.load_image(0).shape[0])
         x_pos_map = np.expand_dims(x_pos_map, -1)
         y_pos_map = np.expand_dims(y_pos_map, -1)
         channel_size = 5
-    else:
-        x_pos_map, y_pos_map = None, None
-        channel_size = 3
+    elif options.get('with_gaussian', False):
+        gaussian_map = GeneralDataset.get_gaussian_map(
+            dataset.load_image(0).shape[0])
+        gaussian_map = np.expand_dims(gaussian_map, -1)
+        channel_size = 4
 
     # switch to evaluate mode
     model.eval()
@@ -165,10 +175,13 @@ def evaluate_raw_dataset(model, dataset):
             if x_pos_map is not None and y_pos_map is not None:
                 mold_image = np.concatenate((mold_image, x_pos_map, y_pos_map),
                                             -1)
+            elif gaussian_map is not None:
+                mold_image = np.concatenate((mold_image, gaussian_map), -1)
 
             batch[batch_index] = mold_image
             labels[batch_index] = dataset.load_labels(image_id)
             image_ids.append(image_id)
+
             batch_index = batch_index + 1
             if batch_index < args.batch_size and idx != data_len - 1:
                 continue
@@ -193,15 +206,20 @@ def evaluate_raw_dataset(model, dataset):
                 # get data
                 image_name = os.path.basename(
                     dataset[image_ids[b]]['image_path'])[:-4]
-                ori_image = dataset.load_original_image(image_ids[b])
-                target = dataset.load_original_labels(image_ids[b])
-                tform_params = dataset.load_align_transform(image_ids[b])
-                pred = transform.warp(
-                    output[b],
-                    tform_params,
-                    output_shape=target.shape[:2],
-                    preserve_range=True)
-                pred = pred.astype(np.uint8)
+                if args.tform_back:
+                    ori_image = dataset.load_original_image(image_ids[b])
+                    target = dataset.load_original_labels(image_ids[b])
+                    tform_params = dataset.load_align_transform(image_ids[b])
+                    pred = transform.warp(
+                        output[b],
+                        tform_params,
+                        output_shape=target.shape[:2],
+                        preserve_range=True)
+                    pred = pred.astype(np.uint8)
+                else:
+                    ori_image = input_images[b]
+                    target = labels[b].astype(np.uint8)
+                    pred = output[b].astype(np.uint8)
 
                 # calculate result
                 acc_hist_all.collect(target, pred)

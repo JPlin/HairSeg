@@ -1,13 +1,16 @@
+import math
 import os
-import sys
-import numpy as np
 import pickle
+import sys
 
-from matplotlib import pyplot as plt
+import numpy as np
 import torch
-from torch.utils.data import Dataset, DataLoader
+from matplotlib import pyplot as plt
+from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms, utils
-from component.data_transforms import Rescale, RandomCrop, Exposure, ToTensor, Normalize
+
+from component.data_transforms import (Exposure, Normalize, RandomCrop,
+                                       Rescale, ToTensor)
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 # where the real image placement
@@ -64,6 +67,7 @@ class GeneralDataset(Dataset):
         im_info = self.raw_dataset[image_id]['image_path']
         x_pos_map = None
         y_pos_map = None
+        gaussian_map = None
         pos_map_path = im_info.replace('.jpg', '.pk').replace(
             'images', 'positions')
         if self.options.get('position_map',
@@ -72,12 +76,15 @@ class GeneralDataset(Dataset):
             x_pos_map, y_pos_map = pos_map['x_map'], pos_map['y_map']
         elif self.options.get('center_map', False):
             x_pos_map, y_pos_map = self.get_xy_map(self.im_size)
+        elif self.options.get('with_gaussian', False):
+            gaussian_map = self.get_gaussian_map(self.im_size)
 
         res = {
             'image': im,
             'label': label,
             'x_pos': x_pos_map,
-            'y_pos': y_pos_map
+            'y_pos': y_pos_map,
+            'g_map': gaussian_map
         }
         if self.transform:
             res = self.transform(res)
@@ -105,6 +112,32 @@ class GeneralDataset(Dataset):
         x_mesh = (x_mesh - x_center) / w
         y_mesh = (y_mesh - y_center) / h
         return x_mesh, y_mesh
+
+    @staticmethod
+    def get_gaussian_map(im_size):
+        '''
+        im_size: int or list
+        return: H x W gaussian map
+        '''
+        if type(im_size) == int:
+            h, w = im_size, im_size
+        elif type(im_size) == list:
+            h, w = im_size[0], im_size[1]
+        x_center, y_center = w / 2, h / 2
+        y_range = np.arange(h)
+        x_range = np.arange(w)
+        x_mesh, y_mesh = np.meshgrid(x_range, y_range)
+
+        def _gaussian(x, y, x_center, y_center, sigma):
+            x = np.abs(x - x_center)
+            y = np.abs(y - y_center)
+            ret = np.exp(-(x**2 + y**2) /
+                         (2 * sigma**2)) / (sigma * math.sqrt(2 * math.pi))
+            ret = ret / (np.max(ret) - np.min(ret))
+            return ret
+
+        gaussian_map = _gaussian(x_mesh, y_mesh, x_center, y_center, 50)
+        return gaussian_map
 
     def gen_training_data(self,
                           query_label_names,
