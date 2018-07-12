@@ -99,9 +99,16 @@ def main():
     else:
         self_attention = False
 
+    in_channels = 3
+    if options.get('position_map', False):
+        in_channels = 5
+    elif options.get('center_map', False):
+        in_channels = 5
+    elif options.get('with_gaussian', False):
+        in_channels = 4
+
     model = DFN(
-        in_channels=5 if options.get('position_map', False)
-        or options.get('center_map', False) else 3,
+        in_channels=in_channels,
         add_fc=add_fc,
         self_attention=self_attention,
         back_bone=options['arch'])
