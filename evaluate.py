@@ -89,15 +89,8 @@ def main():
         sys.exit(1)
 
     # build the model
-    if options['add_fc'] is not None:
-        add_fc = options['add_fc']
-    else:
-        add_fc = False
-
-    if options['self_attention'] is not None:
-        self_attention = options['self_attention']
-    else:
-        self_attention = False
+    add_fc = options.get('add_fc', False)
+    self_attention = options.get('self_attention', False)
 
     in_channels = 3
     if options.get('position_map', False):
@@ -146,7 +139,7 @@ def evaluate_raw_dataset(model, dataset):
     mean = [0.485, 0.456, 0.406]
     std = [0.229, 0.224, 0.225]
 
-    x_pos_map, y_pos_map, g_map = None, None, None
+    x_pos_map, y_pos_map, gaussian_map = None, None, None
     channel_size = 3
     if options.get('center_map', False):
         x_pos_map, y_pos_map = GeneralDataset.get_xy_map(

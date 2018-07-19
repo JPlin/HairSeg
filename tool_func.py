@@ -62,8 +62,10 @@ def unmold_input(tensor, keep_dims=False):
         else:
             return p[0]
     else:
-        if tensor.shape[1] > 3:
+        shapes = tensor.shape
+        if shapes[1] <= 5:
             tensor = tensor[:, :3]
+            tensor = tensor.transpose((0, 2, 3, 1))
         p = tensor * std + mean
         return p
 
