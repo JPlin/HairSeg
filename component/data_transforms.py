@@ -17,8 +17,8 @@ class RandomCrop(object):
             self.output_size = output_size
 
     def __call__(self, sample):
-        image, label, x_pos, y_pos = sample['image'], sample['label'], sample[
-            'x_pos'], sample['y_pos']
+        image, label, x_pos, y_pos, g_map = sample['image'], sample[
+            'label'], sample['x_pos'], sample['y_pos'], sample['g_map']
 
         h, w = image.shape[:2]
         new_h, new_w = self.output_size
@@ -31,7 +31,15 @@ class RandomCrop(object):
             x_pos = x_pos[top:top + new_h, left:left + new_w]
         if y_pos is not None:
             y_pos = y_pos[top:top + new_h, left:left + new_w]
-        return {'image': image, 'label': label, 'x_pos': x_pos, 'y_pos': y_pos}
+        if g_map is not None:
+            g_map = g_map[top:top + new_h, left:left + new_w]
+        return {
+            'image': image,
+            'label': label,
+            'x_pos': x_pos,
+            'y_pos': y_pos,
+            'g_map': g_map
+        }
 
 
 class Rescale(object):
@@ -45,8 +53,8 @@ class Rescale(object):
         self.random_scale = random_scale
 
     def __call__(self, sample):
-        image, label, x_pos, y_pos = sample['image'], sample['label'], sample[
-            'x_pos'], sample['y_pos']
+        image, label, x_pos, y_pos, g_map = sample['image'], sample[
+            'label'], sample['x_pos'], sample['y_pos'], sample['g_map']
 
         h, w = image.shape[:2]
         if isinstance(self.output_size, int):
@@ -69,7 +77,15 @@ class Rescale(object):
             x_pos = transform.resize(x_pos, new_shape)
         if y_pos is not None:
             y_pos = transform.resize(y_pos, new_shape)
-        return {'image': image, 'label': label, 'x_pos': x_pos, 'y_pos': y_pos}
+        if g_map is not None:
+            g_map = transform.resize(g_map, new_shape)
+        return {
+            'image': image,
+            'label': label,
+            'x_pos': x_pos,
+            'y_pos': y_pos,
+            'g_map': g_map
+        }
 
 
 class Exposure(object):
@@ -78,8 +94,7 @@ class Exposure(object):
         self.adjust_gamma = adjust_gamma
 
     def __call__(self, sample):
-        image, label, x_pos, y_pos = sample['image'], sample['label'], sample[
-            'x_pos'], sample['y_pos']
+        image = sample['image']
 
         if self.adjust_gamma:
             gamma = math.exp(max(-1.6, min(1.6, random.normalvariate(0, 0.8))))
@@ -88,7 +103,8 @@ class Exposure(object):
         if random.uniform(0, 1) < self.grey_ratio:
             image = color.rgb2gray(image)
             image = np.stack([image] * 3, -1)
-        return {'image': image, 'label': label, 'x_pos': x_pos, 'y_pos': y_pos}
+        sample['image'] = image
+        return sample
 
 
 class Normalize(object):
@@ -97,18 +113,18 @@ class Normalize(object):
         self.std = std
 
     def __call__(self, sample):
-        image, label, x_pos, y_pos = sample['image'], sample['label'], sample[
-            'x_pos'], sample['y_pos']
+        image = sample['image']
         if np.max(image) > 1:
             image = img_as_float(image)
         image = (image - self.mean) / self.std
-        return {'image': image, 'label': label, 'x_pos': x_pos, 'y_pos': y_pos}
+        sample['image'] = image
+        return sample
 
 
 class ToTensor(object):
     def __call__(self, sample):
-        image, label, x_pos, y_pos = sample['image'], sample['label'], sample[
-            'x_pos'], sample['y_pos']
+        image, label, x_pos, y_pos, g_map = sample['image'], sample[
+            'label'], sample['x_pos'], sample['y_pos'], sample['g_map']
 
         # control the input image size not too large
         h, w = image.shape[:2]
@@ -127,6 +143,9 @@ class ToTensor(object):
             x_pos = np.expand_dims(x_pos, -1)
             y_pos = np.expand_dims(y_pos, -1)
             image = np.concatenate((image, x_pos, y_pos), -1)
+        if g_map is not None:
+            g_map = np.expand_dims(g_map, -1)
+            image = np.concatenate((image, g_map), -1)
         image = image.transpose((2, 0, 1))
         return {
             'image': torch.from_numpy(image).to(torch.float),

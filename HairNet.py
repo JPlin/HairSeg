@@ -296,7 +296,9 @@ class Self_Attn(nn.Module):
         self.key_conv = nn.Conv2d(
             in_channels=self.channel_in, out_channels=dim_k, kernel_size=1)
         self.value_conv = nn.Conv2d(
-            in_channels=self.channel_in, out_channels=self.channel_out, kernel_size=1)
+            in_channels=self.channel_in,
+            out_channels=self.channel_out,
+            kernel_size=1)
         self.gamma = nn.Parameter(torch.zeros(1))
 
         self.softmax = nn.Softmax(dim=-1)  #
@@ -360,6 +362,7 @@ class Multi_Self_Attn(nn.Module):
         """
         attn_outs = []
         for i in range(self.attn_nb):
-            attn_outs.append(self.attn_list[i](x))  # B x C//attn_nb x M x N for each out
+            attn_outs.append(
+                self.attn_list[i](x))  # B x C//attn_nb x M x N for each out
         out = torch.cat(attn_outs, dim=1)
         return out + x
