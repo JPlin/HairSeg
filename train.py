@@ -225,7 +225,8 @@ def train(train_loader, model, criterion, optimizer, epoch):
 
             writer.add_scalar(
                 'train_loss', losses.avg, global_step=global_step)
-            writer.add_image('input', unmold_input(input), global_step)
+            writer.add_image('input',
+                             unmold_input(input).astype(np.int64), global_step)
             writer.add_image('target', raw2image(target, if_max=False),
                              global_step)
             writer.add_image('pred', raw2image(output[0]), global_step)

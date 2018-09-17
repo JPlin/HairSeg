@@ -1,4 +1,4 @@
 {
-    "python.pythonPath": "D:\\v-jinpli\\Anaconda\\envs\\torch\\python.exe",
-    "python.linting.pylintEnabled": false
+    "python.pythonPath": "/home/ming/miniconda3/envs/pytorch/bin/python",
+    "python.linting.pylintEnabled": true
 }

@@ -41,7 +41,7 @@ def check_paths(save_dir):
         sys.exit(1)
 
 
-def unmold_input(tensor, keep_dims=False):
+def unmold_input(tensor, keep_dims=False, channel_first=True):
     '''
     input: numpy or torch.Tensor
     keep_dims: output one sample , or all sample
@@ -57,6 +57,8 @@ def unmold_input(tensor, keep_dims=False):
         p = tensor.cpu().detach().numpy()
         p = np.transpose(p, (0, 2, 3, 1))
         p = p * std + mean
+        if channel_first:
+            p = np.transpose(p, (0, 3, 1, 2))
         if keep_dims:
             return p
         else:
@@ -70,7 +72,7 @@ def unmold_input(tensor, keep_dims=False):
         return p
 
 
-def raw2image(tensor, if_max=True):
+def raw2image(tensor, if_max=True, channel_first=True):
     '''
     input:
         tensor: [b,w , h , 2] or [b ,w , h] , means network one-hot output or target
@@ -86,6 +88,8 @@ def raw2image(tensor, if_max=True):
         p = np.argmax(p, axis=1)
     p = np.expand_dims(p, -1)
     p = np.tile(p, (1, 1, 1, 3))
+    if channel_first:
+        p = np.transpose(p, (0, 3, 1, 2))
     return p[0]
 
 

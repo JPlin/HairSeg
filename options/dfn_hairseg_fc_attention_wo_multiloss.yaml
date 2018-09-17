@@ -1,6 +1,6 @@
 # network
 arch: resnet34
-multi_scale_loss: true
+multi_scale_loss: false
 add_fc: False
 self_attention: True
 

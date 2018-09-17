@@ -58,8 +58,9 @@ class Rescale(object):
 
         h, w = image.shape[:2]
         if isinstance(self.output_size, int):
-            output_size = max(self.output_size + random.randint(
-                -self.random_scale, self.random_scale), 520)
+            output_size = max(
+                self.output_size + random.randint(-self.random_scale,
+                                                  self.random_scale), 520)
             if h > w:
                 new_h, new_w = output_size * h / w, output_size
             else:
@@ -71,8 +72,8 @@ class Rescale(object):
 
         image = transform.resize(image, new_shape)
         label = transform.resize(
-            label.astype(np.float), new_shape, order=0, mode='reflect').astype(
-                np.uint8)
+            label.astype(np.float), new_shape, order=0,
+            mode='reflect').astype(np.uint8)
         if x_pos is not None:
             x_pos = transform.resize(x_pos, new_shape)
         if y_pos is not None:
@@ -132,7 +133,7 @@ class ToTensor(object):
             resize_size = (int(h / 2), int(w / 2))
             image = transform.resize(image, resize_size)
             label = transform.resize(
-                label.astype(np.float), resize_size, order=0,
+                label.astype(np.float32), resize_size, order=0,
                 mode='reflect').astype(np.uint8)
             if x_pos is not None:
                 x_pos = transform.resize(x_pos, resize_size)

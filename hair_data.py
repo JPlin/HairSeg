@@ -13,9 +13,8 @@ from component.data_transforms import (Exposure, Normalize, RandomCrop,
                                        Rescale, ToTensor)
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
-# where the real image placement
-#sys.path.append('E:\\haya\\FaceData')
-sys.path.append('\\\\MSRA-FACEDNN03\\haya\\FaceData')
+# where the real image library locate , path is linux style
+sys.path.append(os.path.join('/mnt', 'd1p8', 'ming', 'jplin', 'FaceParsing'))
 import Parsing as ps
 
 
@@ -40,15 +39,13 @@ class GeneralDataset(Dataset):
         print(self.query_label_names)
         self.transform = transform
         if mode == 'train':
-            self.raw_dataset = self.gen_training_data(self.query_label_names,
-                                                      self.aug_setting_name,
-                                                      options.get(
-                                                          'dataset_names', []))
+            self.raw_dataset = self.gen_training_data(
+                self.query_label_names, self.aug_setting_name,
+                options.get('dataset_names', []))
         else:
-            self.raw_dataset = self.gen_testing_data(self.query_label_names,
-                                                     self.aug_setting_name,
-                                                     options.get(
-                                                         'dataset_names', []))
+            self.raw_dataset = self.gen_testing_data(
+                self.query_label_names, self.aug_setting_name,
+                options.get('dataset_names', []))
         image_list = list(range(len(self.raw_dataset)))
         if from_to_ratio is not None:
             fr = int(from_to_ratio[0] * len(self.raw_dataset))
