@@ -41,7 +41,7 @@ class GeneralDataset(Dataset):
         if mode == 'train':
             self.raw_dataset = self.gen_training_data(
                 self.query_label_names, self.aug_setting_name,
-                options.get('dataset_names', []))
+                options.get('aug_ids', None), options.get('dataset_names', []))
         else:
             self.raw_dataset = self.gen_testing_data(
                 self.query_label_names, self.aug_setting_name,
@@ -140,6 +140,7 @@ class GeneralDataset(Dataset):
     def gen_training_data(self,
                           query_label_names,
                           aug_setting_name='aug_512_0.8',
+                          aug_ids=[0, 1, 2, 3],
                           dataset_names=[]):
         datasets = []
         if len(dataset_names) == 0:
@@ -152,7 +153,7 @@ class GeneralDataset(Dataset):
                 ps.Dataset(
                     dataset_name,
                     category='train',
-                    aug_ids=[0, 1, 2, 3],
+                    aug_ids=aug_ids,
                     aug_setting_name=aug_setting_name,
                     query_label_names=query_label_names))
         return ps.CombinedDataset(datasets)

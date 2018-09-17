@@ -9,7 +9,7 @@ optimizer: sgd
 lr_base: 0.01
 lr_decay: 0.9
 momentum: 0.9
-epoch: 50
+epoch: 40
 step_per_epoch: -1 # -1 means walk through all data
 validation_step: 10
 batch_size: 14
@@ -21,5 +21,6 @@ crop_size: 520
 grey_ratio: 0.1
 query_label_names: [hair]
 aug_setting_name: aug2_512_1.0_pure
+aug_ids: [0 , 1 , 2 , 3 , 4 ,5]
 dataset_names:
   - HELENRelabeled_wo_pred

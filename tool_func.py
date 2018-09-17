@@ -1,9 +1,10 @@
 import os
 import shutil
-
+import argparse
 import numpy as np
 import torch
 from torch.optim import lr_scheduler
+from tensorboardX import SummaryWriter
 
 
 class AverageMeter(object):
@@ -25,11 +26,49 @@ class AverageMeter(object):
         self.avg = self.sum / self.count
 
 
+class MultiStepStatisticCollector:
+    def __init__(self, log_dir='.', comment=None, global_step=0):
+        self.count = global_step
+        self.writer = SummaryWriter(log_dir=log_dir, comment=comment)
+
+    def close(self):
+        self.writer.close()
+
+    def next_step(self):
+        self.count = self.count + 1
+
+    def current_step(self):
+        return self.count
+
+    def __getattr__(self, name):
+        def wrapper(*args, **kwargs):
+            kwargs['global_step'] = self.count
+            return getattr(self.writer, name)(*args, **kwargs)
+
+        return wrapper
+
+
 def save_checkpoint(state, is_best, dirname):
     filename = os.path.join(dirname, 'checkpoint.pth')
     torch.save(state, filename)
     if is_best:
         shutil.copyfile(filename, filename.replace('.pth', '_best.pth'))
+
+
+def load_checkpoints(file_path, model, optimizer):
+    if os.path.isfile(file_path):
+        print("=> loading checkpoint '{}'".format(file_path))
+        checkpoint = torch.load(file_path)
+        start_epoch = checkpoint['epoch']
+        best_pick = checkpoint['best_pick']
+        global_step = checkpoint['global_step']
+        model.load_state_dict(checkpoint['state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer'])
+        print("=> loaded checkpoint '{}' (epoch {})".format(
+            file_path, checkpoint['epoch']))
+    else:
+        print("=> no checkpoint found as '{}'".format(file_path))
+    return start_epoch, best_pick, global_step
 
 
 def check_paths(save_dir):
@@ -57,6 +96,8 @@ def unmold_input(tensor, keep_dims=False, channel_first=True):
         p = tensor.cpu().detach().numpy()
         p = np.transpose(p, (0, 2, 3, 1))
         p = p * std + mean
+        if np.max(p) <= 1:
+            p = p * 255
         if channel_first:
             p = np.transpose(p, (0, 3, 1, 2))
         if keep_dims:
@@ -147,6 +188,12 @@ def str2bool(v):
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
 
+def adjust_learning_rate(optimizer, epoch, lr_base, lr_decay):
+    lr = lr_base * ((1 - lr_decay)**(epoch // 10))
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lr
+
+
 def get_scheduler(optimizer, options, iterations=-1):
     if 'lr_policy' not in options or options['lr_policy'] == 'constant':
         scheduler = None
@@ -159,5 +206,5 @@ def get_scheduler(optimizer, options, iterations=-1):
     else:
         return NotImplementedError(
             'learning rate policy [%s] is not implemented',
-            hyperparameters['lr_policy'])
+            options['lr_policy'])
     return scheduler

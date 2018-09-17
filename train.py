@@ -3,6 +3,8 @@ import os
 import shutil
 import sys
 import time
+from tqdm import tqdm
+from contextlib import closing
 
 import warnings
 warnings.simplefilter("ignore", UserWarning)
@@ -16,7 +18,6 @@ import torch.optim
 import torchvision.models as models
 import torchvision.utils as vutils
 import yaml
-from tensorboardX import SummaryWriter
 import torch.nn.functional as F
 
 from hair_data import GeneralDataset, gen_transform_data_loader
@@ -27,7 +28,7 @@ from tool_func import *
 
 
 def main(arguments):
-    global device, options, writer, best_pick, acc_hist, args, global_step
+    global device, options, writer, best_pick, acc_hist, args
     args = arguments
     global_step = 0
     # use the gpu or cpu as specificed
@@ -44,7 +45,6 @@ def main(arguments):
     ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
     save_log_dir = os.path.join(ROOT_DIR, args.log_dir, args.options[:-4])
     check_paths(save_log_dir)
-    writer = SummaryWriter(log_dir=save_log_dir, comment='DFN event')
 
     # set other settings
     options = yaml.load(open(os.path.join(ROOT_DIR, 'options', args.options)))
@@ -123,18 +123,8 @@ def main(arguments):
         raise ('optimizer not defined')
 
     if args.resume:
-        if os.path.isfile(args.resume):
-            print("=> loading checkpoint '{}'".format(args.resume))
-            checkpoint = torch.load(args.resume)
-            start_epoch = checkpoint['epoch']
-            best_pick = checkpoint['best_pick']
-            global_step = checkpoint['global_step']
-            model.load_state_dict(checkpoint['state_dict'])
-            optimizer.load_state_dict(checkpoint['optimizer'])
-            print("=> loaded checkpoint '{}' (epoch {})".format(
-                args.resume, checkpoint['epoch']))
-        else:
-            print("=> no checkpoint found as '{}'".format(args.resume))
+        start_epoch, best_pick, global_step = load_checkpoints(
+            args.resume, model, optimizer)
 
     # define dataset
     train_loader = gen_transform_data_loader(
@@ -143,33 +133,35 @@ def main(arguments):
         options, mode='test', batch_size=options['batch_size'], shuffle=False)
 
     # start training
-    for epoch in range(start_epoch, options['epoch']):
-        adjust_learning_rate(optimizer, epoch)
+    with closing(
+            MultiStepStatisticCollector(
+                log_dir=save_log_dir,
+                comment='DFN event',
+                global_step=global_step)) as stat_log:
+        for epoch in range(start_epoch, options['epoch']):
+            adjust_learning_rate(optimizer, epoch, options['lr_base'],
+                                 options['lr_decay'])
 
-        # train for each epoch
-        train(train_loader, model, criterion, optimizer, epoch)
+            # train for each epoch
+            train(train_loader, model, criterion, optimizer, epoch, stat_log)
 
-        # evalute on validation set
-        pick_new = validata(test_loader, model, criterion)
+            # evalute on validation set
+            pick_new = validata(test_loader, model, criterion, stat_log)
 
-        # tag best pick and save the checkpoint
-        is_best = pick_new > best_pick
-        best_pick = max(pick_new, best_pick)
-        save_checkpoint({
-            'epoch': epoch,
-            'arch': options['arch'],
-            'state_dict': model.state_dict(),
-            'best_pick': best_pick,
-            'optimizer': optimizer.state_dict(),
-            'global_step': global_step
-        }, is_best, save_log_dir)
-
-    # close writer
-    writer.close()
+            # tag best pick and save the checkpoint
+            is_best = pick_new > best_pick
+            best_pick = max(pick_new, best_pick)
+            save_checkpoint({
+                'epoch': epoch,
+                'arch': options['arch'],
+                'state_dict': model.state_dict(),
+                'best_pick': best_pick,
+                'optimizer': optimizer.state_dict(),
+                'global_step': stat_log.current_step()
+            }, is_best, save_log_dir)
 
 
-def train(train_loader, model, criterion, optimizer, epoch):
-    global global_step
+def train(train_loader, model, criterion, optimizer, epoch, stat_log):
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
@@ -177,8 +169,9 @@ def train(train_loader, model, criterion, optimizer, epoch):
     model.train()
 
     end = time.time()
-    for i, batch in enumerate(train_loader):
-        global_step += 1
+    pbar = tqdm(train_loader)
+    for i, batch in enumerate(pbar):
+        stat_log.next_step()
         input, target = batch['image'].to(device), batch['label'].to(device)
 
         if args.debug:
@@ -211,31 +204,32 @@ def train(train_loader, model, criterion, optimizer, epoch):
 
         # print every 10 step
         freq = 10 if args.debug else 30
-        if i % freq == 0:
-            print('Epoch: [{0}]<--[{1}]/[{2}]\t'
-                  'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
-                  'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
-                  'Loss {loss.val:.4f} ({loss.avg:.4f})'.format(
-                      epoch,
-                      i,
-                      len(train_loader),
-                      batch_time=batch_time,
-                      data_time=data_time,
-                      loss=losses))
+        # print('Epoch: [{0}]<--[{1}]/[{2}]\t'
+        #       'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+        #       'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
+        #       'Loss {loss.val:.4f} ({loss.avg:.4f})'.format(
+        #           epoch,
+        #           i,
+        #           len(train_loader),
+        #           batch_time=batch_time,
+        #           data_time=data_time,
+        #           loss=losses))
+        pbar.set_description(
+            'Data {data_time.avg:.3f} Loss {loss.val:.4f} ({loss.avg:.4f})'.
+            format(data_time=data_time, loss=losses))
 
-            writer.add_scalar(
-                'train_loss', losses.avg, global_step=global_step)
-            writer.add_image('input',
-                             unmold_input(input).astype(np.int64), global_step)
-            writer.add_image('target', raw2image(target, if_max=False),
-                             global_step)
-            writer.add_image('pred', raw2image(output[0]), global_step)
+        if i % freq == 0:
+            stat_log.add_scalar('train_loss', losses.avg)
+            stat_log.add_image('input', unmold_input(input).astype(np.int64))
+            stat_log.add_image('target', raw2image(target, if_max=False))
+            stat_log.add_image('pred', raw2image(output[0]))
+
         if options['step_per_epoch'] != -1 and options['step_per_epoch'] <= i:
             print('end of epoch')
             break
 
 
-def validata(test_loader, model, criterion):
+def validata(test_loader, model, criterion, stat_log):
     batch_time = AverageMeter()
     losses = AverageMeter()
     acc_hist.reset()
@@ -245,7 +239,7 @@ def validata(test_loader, model, criterion):
 
     with torch.no_grad():
         end = time.time()
-        for i, batch in enumerate(test_loader):
+        for i, batch in enumerate(tqdm(test_loader)):
             input, target = batch['image'].to(device), batch['label'].to(
                 device)
 
@@ -276,16 +270,9 @@ def validata(test_loader, model, criterion):
                   batch_time=batch_time,
                   loss=losses))
 
-        writer.add_scalar('valid_loss', losses.avg, global_step=global_step)
-        writer.add_scalar(
-            'f1-score', f1_result['hair'], global_step=global_step)
+        stat_log.add_scalar('valid_loss', losses.avg)
+        stat_log.add_scalar('f1-score', f1_result['hair'])
     return f1_result['hair']
-
-
-def adjust_learning_rate(optimizer, epoch):
-    lr = options['lr_base'] * ((1 - options['lr_decay'])**(epoch // 10))
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = lr
 
 
 if __name__ == '__main__':

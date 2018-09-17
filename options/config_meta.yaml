@@ -23,5 +23,6 @@ grey_ratio: 0.1 # default
 query_label_names: [hair] # require , list of part names 
 aug_setting_name: aug_1.0_original # default  
 position_map: True # default False
+aug_ids: [1,2,...] # the augmentaiton indexs
 dataset_names: # default use all dataset
-  - HELENRelabeled
+  - HELENRelabeled_wo_pred
