@@ -180,9 +180,9 @@ class GeneralDataset(Dataset):
 
 
 # for evaluate
-def get_helen_test_data(query_label_names, aug_setting_name='aug_512_0.8'):
+def get_helen_test_data(query_label_names, aug_setting_name):
     return ps.Dataset(
-        'HELENRelabeled',
+        'HELENRelabeled_wo_pred',
         category='test',
         aug_ids=[0],
         aug_setting_name=aug_setting_name,

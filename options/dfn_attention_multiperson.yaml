@@ -1,0 +1,26 @@
+# network
+arch: resnet34
+multi_scale_loss: true
+add_fc: False
+self_attention: True
+
+# train setting
+optimizer: sgd
+lr_base: 0.01
+lr_decay: 0.9
+momentum: 0.9
+epoch: 40
+step_per_epoch: -1 # -1 means walk through all data
+validation_step: 10
+batch_size: 14
+weight_decay: 0.0001
+
+# dataset setting
+im_size: 512
+crop_size: 520
+grey_ratio: 0.1
+query_label_names: [hair]
+aug_setting_name: aug_512_0.6_multi_person
+aug_ids: [0 , 1 , 2 , 3 , 4]
+dataset_names:
+  - HELENRelabeled_wo_pred

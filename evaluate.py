@@ -106,6 +106,7 @@ def main():
         self_attention=self_attention,
         back_bone=options['arch'])
     model = nn.DataParallel(model, device_ids=device_ids)
+    model.to(device)
 
     # loading checkpoint
     print("=> loading checkpoint '{}'".format(model_path))
@@ -210,12 +211,20 @@ def evaluate_raw_dataset(model, dataset):
                     ori_image = dataset.load_original_image(image_ids[b])
                     target = dataset.load_original_labels(image_ids[b])
                     tform_params = dataset.load_align_transform(image_ids[b])
+                    if args.data_settings.find('multi_person') != -1:
+                        ori_shape = (target.shape[0] * 2, target.shape[1] * 2)
+                        ori_image = transform.rescale(ori_image, 2, preserve_range=True).astype(np.uint8)
+                        target = transform.rescale(target, 2, order=0, preserve_range=True).astype(np.uint8)
+                    else:
+                        ori_shape = target.shape[:2]
+                    
                     pred = transform.warp(
                         output[b],
                         tform_params,
-                        output_shape=target.shape[:2],
+                        output_shape=ori_shape,
                         preserve_range=True)
                     pred = pred.astype(np.uint8)
+
                 else:
                     ori_image = input_images[b]
                     target = labels[b].astype(np.uint8)
@@ -226,8 +235,8 @@ def evaluate_raw_dataset(model, dataset):
                 acc_hist_single.collect(target, pred)
                 f1_result = acc_hist_single.get_f1_results()['hair']
 
+                print(f'dealing with: input.shape{ori_image.shape} output.shape{pred.shape}')
                 # visualize result
-                print(ori_image.shape, target.shape)
                 gt_blended = blend_labels(ori_image, target)
                 predict_blended = blend_labels(ori_image, pred)
 

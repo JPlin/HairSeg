@@ -43,7 +43,7 @@ def main(arguments):
 
     # set logger
     ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
-    save_log_dir = os.path.join(ROOT_DIR, args.log_dir, args.options[:-4])
+    save_log_dir = os.path.join(ROOT_DIR, args.log_dir, args.options[:-5])
     check_paths(save_log_dir)
 
     # set other settings
@@ -215,7 +215,7 @@ def train(train_loader, model, criterion, optimizer, epoch, stat_log):
         #           data_time=data_time,
         #           loss=losses))
         pbar.set_description(
-            'Data {data_time.avg:.3f} Loss {loss.val:.4f} ({loss.avg:.4f})'.
+            'Epoch {epoch} Data {data_time.avg:.3f} Loss ({loss.avg:.4f})'.
             format(data_time=data_time, loss=losses))
 
         if i % freq == 0:

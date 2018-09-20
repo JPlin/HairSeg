@@ -27,7 +27,7 @@ class AverageMeter(object):
 
 
 class MultiStepStatisticCollector:
-    def __init__(self, log_dir='.', comment=None, global_step=0):
+    def __init__(self, log_dir='', comment=None, global_step=0):
         self.count = global_step
         self.writer = SummaryWriter(log_dir=log_dir, comment=comment)
 
