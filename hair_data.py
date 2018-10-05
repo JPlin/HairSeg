@@ -8,9 +8,11 @@ import torch
 from matplotlib import pyplot as plt
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms, utils
+import tool_func
 
 from component.data_transforms import (Exposure, Normalize, RandomCrop,
-                                       Rescale, ToTensor)
+                                       Rescale, ToTensor, Resize_Padding,
+                                       ToTensor2)
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 # where the real image library locate , path is linux style
@@ -179,6 +181,70 @@ class GeneralDataset(Dataset):
         return ps.CombinedDataset(datasets)
 
 
+class AttnSegDataset(Dataset):
+    def __init__(self,
+                 options,
+                 mode='train',
+                 from_to_ratio=None,
+                 transform=None):
+        super(AttnSegDataset, self).__init__()
+        self.options = options
+        if options:
+            self.im_size = options['im_size']
+            self.query_label_names = options['query_label_names']
+        else:
+            # test data is pre_define
+            self.im_size = 512
+            self.query_label_names = ['hair']
+
+        print('query_label_names', self.query_label_names)
+        self.transform = transform
+
+        # create basic dataset instance
+        if mode == 'train':
+            self.raw_dataset = self.gen_training_data(
+                self.query_label_names, options.get('training_dataset', []))
+        else:
+            self.raw_dataset = self.gen_testing_data(
+                self.query_label_names, options.get('test_dataset', []))
+
+        # generate index mapping
+        image_list = list(range(len(self.raw_dataset)))
+        if from_to_ratio is not None:
+            fr = int(from_to_ratio[0] * len(self.raw_dataset))
+            to = int(from_to_ratio[1] * len(self.raw_dataset))
+            self.image_ids = image_list[fr:to]
+        else:
+            self.image_ids = image_list[:]
+
+    def __len__(self):
+        return len(self.image_ids)
+
+    def __getitem__(self, idx):
+        image_id = self.image_ids[idx]
+        im = self.raw_dataset.load_image(image_id)
+        label_list = self.raw_dataset.load_labels(image_id)
+        fa_point_list = self.raw_dataset.load_fa_points(image_id)
+        res = {'image': im, 'labels': label_list, 'fa_points': fa_point_list}
+        if self.transform:
+            res = self.transform(res)
+        return res
+
+    def gen_training_data(self, query_label_names, dataset_names):
+        ret_dataset = ps.MergeDataset(
+            dataset_names,
+            category='train',
+            query_label_names=query_label_names)
+        return ret_dataset
+
+    def gen_testing_data(self, query_label_names, dataset_names):
+        ret_dataset = ps.MergeDataset(
+            dataset_names,
+            category='test',
+            query_label_names=query_label_names)
+        return ret_dataset
+
+
 # for evaluate
 def get_helen_test_data(query_label_names, aug_setting_name):
     return ps.Dataset(
@@ -187,6 +253,51 @@ def get_helen_test_data(query_label_names, aug_setting_name):
         aug_ids=[0],
         aug_setting_name=aug_setting_name,
         query_label_names=query_label_names)
+
+
+# calling general dataset
+def gen_transform_data_loader(options,
+                              mode='train',
+                              batch_size=1,
+                              shuffle=True,
+                              dataloader=True,
+                              use_original=False):
+    # define composition of transforms
+    transform_list = []
+    if mode == 'train':
+        transform_list = [
+            Exposure(options['grey_ratio']),
+            Rescale(options['crop_size'], options.get('random_scale', 0)),
+            RandomCrop(options['im_size']),
+            Normalize(),
+            ToTensor()
+        ]
+    elif mode == 'test':
+        if not use_original:
+            transform_list = [
+                Rescale(options['crop_size'], options.get('random_scale',
+                                                          400)),
+                RandomCrop(options['im_size']),
+                Normalize(),
+                ToTensor()
+            ]
+        else:
+            transform_list = [Normalize(), ToTensor()]
+    _transforms = transforms.Compose(transform_list)
+
+    # define pytorch dataset
+    ds = GeneralDataset(options, mode=mode, transform=_transforms)
+    print("=> generate data loader: mode({0}) , length({1})".format(
+        mode, len(ds)))
+
+    # define pytorch dataloader
+    ds_loader = DataLoader(
+        ds, batch_size=batch_size, shuffle=shuffle, num_workers=12)
+
+    if dataloader:
+        return ds_loader
+    else:
+        return ds
 
 
 # for unit test , test pytorch dataset
@@ -255,37 +366,31 @@ def test_dataloader(options):
         '''
 
 
-def gen_transform_data_loader(options,
-                              mode='train',
-                              batch_size=1,
-                              shuffle=True,
-                              dataloader=True,
-                              use_original=False):
-    # define composition of transforms
+# calling AttnSegDataset
+def gen_transform_data_loader_2(options,
+                                mode='train',
+                                batch_size=1,
+                                shuffle=True,
+                                DataLoader=True):
+    #  define composition of transforms
     transform_list = []
     if mode == 'train':
         transform_list = [
             Exposure(options['grey_ratio']),
-            Rescale(options['crop_size'], options.get('random_scale', 0)),
-            RandomCrop(options['im_size']),
+            Resize_Padding(options['im_size']),
             Normalize(),
-            ToTensor()
+            ToTensor2()
         ]
     elif mode == 'test':
-        if not use_original:
-            transform_list = [
-                Rescale(options['crop_size'], options.get('random_scale',
-                                                          400)),
-                RandomCrop(options['im_size']),
-                Normalize(),
-                ToTensor()
-            ]
-        else:
-            transform_list = [Normalize(), ToTensor()]
+        transform_list = [
+            Resize_Padding(options['im_size']),
+            Normalize(),
+            ToTensor2()
+        ]
     _transforms = transforms.Compose(transform_list)
 
     # define pytorch dataset
-    ds = GeneralDataset(options, mode=mode, transform=_transforms)
+    ds = AttnSegDataset(options, mode=mode, transform=_transforms)
     print("=> generate data loader: mode({0}) , length({1})".format(
         mode, len(ds)))
 
@@ -293,22 +398,91 @@ def gen_transform_data_loader(options,
     ds_loader = DataLoader(
         ds, batch_size=batch_size, shuffle=shuffle, num_workers=12)
 
-    if dataloader:
+    if DataLoader:
         return ds_loader
     else:
         return ds
 
 
+def test_dataloader2(options):
+    transform = transforms.Compose([
+        Exposure(options['grey_ratio']),
+        Resize_Padding(options['im_size']),
+        Normalize(),
+        ToTensor2()
+    ])
+    ds = AttnSegDataset(options, mode='train', transform=transform)
+    print("=> generate data loader: mode({0}) , length({1})".format(
+        'train', len(ds)))
+    ds_loader = DataLoader(ds, batch_size=4, shuffle=True, num_workers=1)
+
+    def _show_batch(sample_batch):
+        image_batch, label_batch, fa_point_batch = sample_batch[
+            'image'], sample_batch['labels'], sample_batch['fa_points']
+
+        batch_size = len(image_batch)
+
+        # visualize image
+        grid = utils.make_grid(image_batch)
+        plt.figure()
+        plt.imshow(grid.numpy().transpose((1, 2, 0)))
+
+        # visualize labels
+        grid = label_batch[0].numpy()
+        print(np.unique(grid))
+        grids = []
+        for i in range(batch_size):
+            grids.append(grid[i])
+        plt.figure()
+        plt.imshow(np.concatenate(grids, 1))
+
+        # grid = label_batch[1].numpy()
+        print(np.unique(grid))
+        grids = []
+        for i in range(batch_size):
+            grids.append(grid[i])
+        plt.figure()
+        plt.imshow(np.concatenate(grids, 1))
+
+        # visualize fa points
+        grid = fa_point_batch[0].numpy()
+        tool_func.vis_points(image_batch[0].numpy().transpose((1, 2, 0)),
+                             grid[0])
+        # tool_func.vis_points(image_batch[0].numpy().transpose((1, 2, 0)),
+        #                      grid[0])
+
+    for i_batch, sample_batch in enumerate(ds_loader):
+        image = sample_batch['image']
+        labels = sample_batch['labels']
+        fa_points = sample_batch['fa_points']
+        print(image.shape, labels[0].shape, fa_points[0].shape)
+
+        if i_batch == 3:
+            _show_batch(sample_batch)
+            plt.axis('off')
+            plt.ioff()
+            plt.show()
+            break
+
+
 if __name__ == '__main__':
     import yaml
     from torchvision import transforms, utils
-    from component.data_transforms import Rescale, RandomCrop, Exposure, ToTensor
+
+    # test dataloader
+
+    # plt.ion()
+    # options = yaml.load(
+    #     open(
+    #         os.path.join(ROOT_DIR, 'options',
+    #                      'dfn_hairseg_attention_randomcrop.yaml')))
+    # print(options)
+
+    # #test_dataset(options)
+    # test_dataloader(options)
+
+    # test dataloader2
     plt.ion()
     options = yaml.load(
-        open(
-            os.path.join(ROOT_DIR, 'options',
-                         'dfn_hairseg_attention_randomcrop.yaml')))
-    print(options)
-
-    #test_dataset(options)
-    test_dataloader(options)
+        open(os.path.join(ROOT_DIR, 'options', 'attnseg.yaml')))
+    test_dataloader2(options)

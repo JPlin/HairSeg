@@ -68,15 +68,25 @@ class Channel_Attn(nn.Module):
     in_dim: the input image dimention
     '''
 
-    def __init__(self, in_dim):
-        super(Channel_Attn, self).__init()
+    def __init__(self, in_dim, dim_c):
+        super(Channel_Attn, self).__init__()
         assert in_dim > 0
-
+        print(f'*************channel {dim_c}')
         self.channel_in = in_dim
+        self.channel_out = dim_c
+        self.conv_down = nn.Conv2d(
+            in_channels=self.channel_in,
+            out_channels=self.channel_out,
+            kernel_size=1)
+        self.conv_up = nn.Conv2d(
+            in_channels=self.channel_out,
+            out_channels=self.channel_in,
+            kernel_size=1)
         self.gamma = nn.Parameter(torch.zeros(1))
         self.softmax = nn.Softmax(dim=-1)
 
     def forward(self, x):
+        x = self.conv_down(x)
         m_batchsize, C, width, height = x.size()
         # [b, C, hxw ]
         proj_query = x.view(m_batchsize, C, -1)
@@ -96,7 +106,8 @@ class Channel_Attn(nn.Module):
         # [b, C, h, W]
         out = out.view(m_batchsize, C, width, height)
         # [b, C, h, W]
-        out = self.gamma * out + y
+        out = self.gamma * out + x
+        out = self.conv_up(out)
         return out
 
 
@@ -165,6 +176,22 @@ class Multi_Self_Attn(nn.Module):
                 self.attn_list[i](x))  # B x C//attn_nb x M x N for each out
         out = torch.cat(attn_outs, dim=1)
         return out + x
+
+
+class Dual_Attn(nn.Module):
+    """dual attention module that is Spatial Attention and Channel Attention"""
+
+    def __init__(self, feature_size, dim_k=None):
+        super(Dual_Attn, self).__init__()
+        dim_k = feature_size // 8 if dim_k is None else dim_k
+        dim_c = dim_k
+        self.spatial_attn = Spatial_Attn(feature_size, dim_k)
+        self.channel_attn = Channel_Attn(feature_size, dim_c)
+
+    def forward(self, x):
+        spatial_out = self.spatial_attn(x)
+        channel_out = self.channel_attn(x)
+        return spatial_out + channel_out
 
 
 # --------------------- misc -----------------------

@@ -56,15 +56,9 @@ def main(arguments):
     acc_hist = Acc_score(options['query_label_names'])
 
     # build the model
-    if options['add_fc'] is not None:
-        add_fc = options['add_fc']
-    else:
-        add_fc = False
-
-    if options['self_attention'] is not None:
-        self_attention = options['self_attention']
-    else:
-        self_attention = False
+    add_fc = options.get('add_fc', False)
+    self_attention = options.get('self_attention', False)
+    attention_plus = options.get('channel_attention', False)
 
     in_channels = 3
     if options.get('position_map', False):
@@ -78,6 +72,7 @@ def main(arguments):
         in_channels=in_channels,
         add_fc=add_fc,
         self_attention=self_attention,
+        attention_plus=attention_plus,
         debug=args.debug,
         back_bone=options['arch'])
 
@@ -216,7 +211,7 @@ def train(train_loader, model, criterion, optimizer, epoch, stat_log):
         #           loss=losses))
         pbar.set_description(
             'Epoch {epoch} Data {data_time.avg:.3f} Loss ({loss.avg:.4f})'.
-            format(data_time=data_time, loss=losses))
+            format(epoch=epoch, data_time=data_time, loss=losses))
 
         if i % freq == 0:
             stat_log.add_scalar('train_loss', losses.avg)

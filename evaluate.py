@@ -91,6 +91,8 @@ def main():
     # build the model
     add_fc = options.get('add_fc', False)
     self_attention = options.get('self_attention', False)
+    attention_plus = options.get('channel_attention', False)
+
 
     in_channels = 3
     if options.get('position_map', False):
@@ -104,6 +106,7 @@ def main():
         in_channels=in_channels,
         add_fc=add_fc,
         self_attention=self_attention,
+        attention_plus=attention_plus,
         back_bone=options['arch'])
     model = nn.DataParallel(model, device_ids=device_ids)
     model.to(device)

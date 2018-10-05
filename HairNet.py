@@ -13,11 +13,13 @@ class DFN(nn.Module):
                  out_channels=64,
                  add_fc=True,
                  self_attention=False,
+                 attention_plus=False,
                  debug=False,
                  back_bone='resnet101'):
         super(DFN, self).__init__()
         self.add_fc = add_fc  # if flatten and fc the last stage
         self.self_attention = self_attention  # if add self attention
+        self.attention_plus = attention_plus
         self.debug = debug
         self.conv1 = ConvLayer(
             in_channels, out_channels, kernel_size=3, stride=2)
@@ -63,7 +65,10 @@ class DFN(nn.Module):
             dim_k = feature_size // 8
             self.down_channel_attention = ConvLayer(
                 2048 // self.expand, feature_size, kernel_size=3, stride=2)
-            self.RM = Spatial_Attn(feature_size, dim_k)
+            if self.attention_plus:
+                self.RM = Dual_Attn(feature_size, dim_k)
+            else:
+                self.RM = Spatial_Attn(feature_size, dim_k)
 
         self.stage_1 = StageBlock(1, self.expand)
         self.score_map_1 = ConvLayer(512, 2, kernel_size=1, stride=1)

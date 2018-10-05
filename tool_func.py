@@ -5,6 +5,7 @@ import numpy as np
 import torch
 from torch.optim import lr_scheduler
 from tensorboardX import SummaryWriter
+import matplotlib.pyplot as plt
 
 
 class AverageMeter(object):
@@ -208,3 +209,10 @@ def get_scheduler(optimizer, options, iterations=-1):
             'learning rate policy [%s] is not implemented',
             options['lr_policy'])
     return scheduler
+
+
+def vis_points(im, points):
+    import matplotlib.pyplot as plt
+    plt.imshow(im)
+    plt.scatter(points[:, 0], points[:, 1], c='r', s=40)
+    plt.show()

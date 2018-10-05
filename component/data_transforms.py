@@ -4,7 +4,14 @@ import torch
 import math
 import random
 from torchvision import transforms, utils
-from skimage import io, color, exposure, transform, img_as_float
+from skimage import io, color, exposure, transform, img_as_float, util
+
+
+def vis_points(im, points):
+    import matplotlib.pyplot as plt
+    plt.imshow(im)
+    plt.scatter(points[:, 0], points[:, 1], c='r', s=40)
+    plt.show()
 
 
 class RandomCrop(object):
@@ -86,6 +93,97 @@ class Rescale(object):
             'x_pos': x_pos,
             'y_pos': y_pos,
             'g_map': g_map
+        }
+
+
+class Resize_Padding(object):
+    def __init__(self, im_size):
+        self.im_size = im_size
+
+    def __call__(self, sample):
+        image = sample['image']
+        labels = sample.get('labels', None)
+        fa_points = sample.get('fa_points', None)
+
+        h, w = image.shape[:2]
+        if h < w:
+            new_h, new_w = int(self.im_size * h / w), self.im_size
+            scale = self.im_size / w
+            pad_h = self.im_size - new_h
+            pad_h_tuple = (int(pad_h / 2), pad_h - int(pad_h / 2))
+            pad_w_tuple = (0, 0)
+        else:
+            new_h, new_w = self.im_size, int(self.im_size * w / h)
+            scale = self.im_size / h
+            pad_w = self.im_size - new_w
+            pad_w_tuple = (int(pad_w / 2), pad_w - int(pad_w / 2))
+            pad_h_tuple = (0, 0)
+
+        new_shape = (new_h, new_w)
+        vis_points(image, fa_points[1])
+        # reisze and pad image
+        image = transform.resize(image, new_shape)
+        image = util.pad(
+            image, (pad_h_tuple, pad_w_tuple, (0, 0)), mode='constant')
+        sample['image'] = image
+
+        # resize and pad label
+        if labels is not None:
+            if isinstance(labels, list):
+                for i, label in enumerate(labels):
+                    labels[i] = transform.resize(
+                        labels[i].astype(np.float),
+                        new_shape,
+                        order=0,
+                        mode='reflect').astype(np.uint8)
+                    labels[i] = util.pad(
+                        labels[i], (pad_h_tuple, pad_w_tuple), mode='constant')
+            else:
+                labels = transform.resize(
+                    labels.astype(np.float),
+                    new_shape,
+                    order=0,
+                    mode='reflect').astype(np.uint8)
+                labels = util.pad(
+                    labels, (pad_h_tuple, pad_w_tuple), mode='constant')
+            sample['labels'] = labels
+
+        # resize and pad fa points
+        if fa_points is not None:
+            if isinstance(fa_points, list):
+                for i, fa_point in enumerate(fa_points):
+                    fa_points[i] = fa_points[i] * scale
+                    fa_points[i] = fa_points[i] + [
+                        pad_w_tuple[0], pad_h_tuple[0]
+                    ]
+            else:
+                fa_points = fa_points * scale
+                fa_points = fa_points + [pad_w_tuple[0], pad_h_tuple[0]]
+            sample['fa_points'] = fa_points
+
+        vis_points(image, fa_points[1])
+        return sample
+
+
+class ToTensor2(object):
+    def __call__(self, sample):
+        image = sample['image']
+        labels = sample['labels']
+        fa_points = sample['fa_points']
+        ret_labels = []
+        ret_fa_points = []
+
+        image = image.transpose((2, 0, 1))
+        ret_image = torch.from_numpy(image).to(torch.float)
+        for label in labels:
+            ret_labels.append(torch.from_numpy(label).to(torch.long))
+        for fa_point in fa_points:
+            ret_fa_points.append(torch.from_numpy(fa_point).to(torch.float))
+
+        return {
+            'image': ret_image,
+            'labels': ret_labels,
+            'fa_points': ret_fa_points
         }
 
 
