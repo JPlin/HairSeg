@@ -120,7 +120,6 @@ class Resize_Padding(object):
             pad_h_tuple = (0, 0)
 
         new_shape = (new_h, new_w)
-        vis_points(image, fa_points[1])
         # reisze and pad image
         image = transform.resize(image, new_shape)
         image = util.pad(
@@ -160,8 +159,6 @@ class Resize_Padding(object):
                 fa_points = fa_points * scale
                 fa_points = fa_points + [pad_w_tuple[0], pad_h_tuple[0]]
             sample['fa_points'] = fa_points
-
-        vis_points(image, fa_points[1])
         return sample
 
 
@@ -175,11 +172,12 @@ class ToTensor2(object):
 
         image = image.transpose((2, 0, 1))
         ret_image = torch.from_numpy(image).to(torch.float)
-        for label in labels:
-            ret_labels.append(torch.from_numpy(label).to(torch.long))
-        for fa_point in fa_points:
-            ret_fa_points.append(torch.from_numpy(fa_point).to(torch.float))
-
+        # for label in labels:
+        #     ret_labels.append(label)
+        ret_labels = torch.from_numpy(np.array(labels)).to(torch.long)
+        # for fa_point in fa_points:
+        #     ret_fa_points.append(fa_point)
+        ret_fa_points = torch.from_numpy(np.array(fa_points)).to(torch.float)
         return {
             'image': ret_image,
             'labels': ret_labels,
@@ -248,5 +246,5 @@ class ToTensor(object):
         image = image.transpose((2, 0, 1))
         return {
             'image': torch.from_numpy(image).to(torch.float),
-            'label': torch.from_numpy(label).to(torch.long),
+            'labels': torch.from_numpy(label).to(torch.long),
         }

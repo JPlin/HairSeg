@@ -20,8 +20,9 @@ import torchvision.utils as vutils
 import yaml
 import torch.nn.functional as F
 
-from hair_data import GeneralDataset, gen_transform_data_loader
+from hair_data import *
 from HairNet import DFN
+from AttentionSegNet import AttnSegNet
 from component.criterion import *
 from component.metrics import Acc_score
 from tool_func import *
@@ -45,6 +46,9 @@ def main(arguments):
     ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
     save_log_dir = os.path.join(ROOT_DIR, args.log_dir, args.options[:-5])
     check_paths(save_log_dir)
+    save_evaluate_dir = os.path.join(ROOT_DIR, args.log_dir, args.options[:-5],
+                                     "evaluate")
+    check_paths(save_evaluate_dir)
 
     # set other settings
     options = yaml.load(open(os.path.join(ROOT_DIR, 'options', args.options)))
@@ -68,13 +72,23 @@ def main(arguments):
     elif options.get('with_gaussian', False):
         in_channels = 4
 
-    model = DFN(
-        in_channels=in_channels,
-        add_fc=add_fc,
-        self_attention=self_attention,
-        attention_plus=attention_plus,
-        debug=args.debug,
-        back_bone=options['arch'])
+    net_name = options.get('net', 'DFN')
+    if net_name == 'DFN':
+        model = DFN(
+            in_channels=in_channels,
+            add_fc=add_fc,
+            self_attention=self_attention,
+            attention_plus=attention_plus,
+            debug=args.debug,
+            back_bone=options['arch'])
+    elif net_name.lower() == 'attnseg':
+        model = AttnSegNet(
+            len(options['query_label_names']) + 1,
+            in_channels,
+            debug=args.debug,
+            back_bone=options['arch'])
+    else:
+        raise 'net not implemented error'
 
     # dummy_input = torch.rand(1, 3, 512, 512)
     # model(dummy_input)
@@ -91,7 +105,7 @@ def main(arguments):
         print(model)
 
     # set loss function
-    if options['multi_scale_loss'] == True:
+    if options.get('multi_scale_loss', False):
         criterion = Multi_Scale_CrossEntropyLoss2d().to(device)
     elif options.get('floss', False):
         criterion = Fscore_Loss().to(device)
@@ -122,10 +136,22 @@ def main(arguments):
             args.resume, model, optimizer)
 
     # define dataset
-    train_loader = gen_transform_data_loader(
-        options, mode='train', batch_size=options['batch_size'])
-    test_loader = gen_transform_data_loader(
-        options, mode='test', batch_size=options['batch_size'], shuffle=False)
+    if net_name == 'DFN':
+        train_loader = gen_transform_data_loader(
+            options, mode='train', batch_size=options['batch_size'])
+        test_loader = gen_transform_data_loader(
+            options,
+            mode='test',
+            batch_size=options['batch_size'],
+            shuffle=False)
+    elif net_name.lower() == 'attnseg':
+        train_loader = gen_transform_data_loader_2(
+            options, mode='train', batch_size=options['batch_size'])
+        test_loader = gen_transform_data_loader_2(
+            options,
+            mode='test',
+            batch_size=options['evaluate_batch_size'],
+            shuffle=False)
 
     # start training
     with closing(
@@ -167,7 +193,11 @@ def train(train_loader, model, criterion, optimizer, epoch, stat_log):
     pbar = tqdm(train_loader)
     for i, batch in enumerate(pbar):
         stat_log.next_step()
-        input, target = batch['image'].to(device), batch['label'].to(device)
+        input, target = batch['image'].to(device), batch['labels'].to(device)
+
+        fa_points = batch.get('fa_points', None)
+        if fa_points is not None:
+            fa_points = fa_points.to(device)
 
         if args.debug:
             print('input.size: {} , target.size: {}'.format(
@@ -175,10 +205,56 @@ def train(train_loader, model, criterion, optimizer, epoch, stat_log):
 
         # measure data loading time
         data_time.update(time.time() - end)
+        # print every 10 step
+        freq = 10 if args.debug else 100
 
         # compute output
-        output = model(input)
-        loss = criterion(output, target)
+        if fa_points is not None:
+            #model.apply(set_bn_to_eval)
+            loss_list = []
+            gathers = []
+            outputs = model(input, fa_points)
+            target = target.transpose(0, 1)
+            merge_targets = target[0]
+            merge_outputs = outputs[0]
+            if i % freq == 0:
+                image_input = unmold_input(input)
+                print(image_input.shape)
+                stat_log.add_image('train_input', image_input)
+                stat_log.add_scalar('train_loss_avg', losses.avg)
+
+            for j, output in enumerate(outputs):
+                target_i = target[j]
+                output_i = outputs[j]
+                loss_list.append(criterion(output_i, target_i))
+
+                merge_targets = torch.where(target_i > 0, target_i,
+                                            merge_targets)
+                merge_outputs = torch.where(merge_outputs > output_i,
+                                            merge_outputs, output_i)
+
+                if i % freq == 0:
+                    image_target_i = raw2image(target_i, if_max=False)
+                    image_output_i = raw2image(output_i)
+
+                    blend_target_i = blend_labels(image_input , image_target_i[:,:,0])
+                    blend_output_i = blend_labels(image_input , image_output_i[:,:,0])
+                    stat_log.add_image(f'train_target_{j}', blend_target_i)
+                    stat_log.add_image(f'train_pred_{j}', blend_output_i)
+
+            loss_list.append(criterion(merge_outputs, merge_targets))
+            loss = sum(loss_list)
+
+        else:
+            output = model(input)
+            loss = criterion(output, target)
+
+            if i % freq == 0:
+                stat_log.add_scalar('train_loss', losses.avg)
+                stat_log.add_image('input',
+                                   unmold_input(input).astype(np.int64))
+                stat_log.add_image('target', raw2image(target, if_max=False))
+                stat_log.add_image('pred', raw2image(output[0]))
 
         if args.debug:
             print('output.size: {}, target.size: {} , loss.size: {}'.format(
@@ -187,6 +263,8 @@ def train(train_loader, model, criterion, optimizer, epoch, stat_log):
 
         # measure accuracy and record loss
         losses.update(loss.item(), input.size(0))
+        if i % freq == 0:
+            stat_log.add_scalar('train_loss' , losses.val)
 
         # compute gradient and do optimizing step
         optimizer.zero_grad()
@@ -197,27 +275,9 @@ def train(train_loader, model, criterion, optimizer, epoch, stat_log):
         batch_time.update(time.time() - end)
         end = time.time()
 
-        # print every 10 step
-        freq = 10 if args.debug else 30
-        # print('Epoch: [{0}]<--[{1}]/[{2}]\t'
-        #       'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
-        #       'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
-        #       'Loss {loss.val:.4f} ({loss.avg:.4f})'.format(
-        #           epoch,
-        #           i,
-        #           len(train_loader),
-        #           batch_time=batch_time,
-        #           data_time=data_time,
-        #           loss=losses))
         pbar.set_description(
             'Epoch {epoch} Data {data_time.avg:.3f} Loss ({loss.avg:.4f})'.
             format(epoch=epoch, data_time=data_time, loss=losses))
-
-        if i % freq == 0:
-            stat_log.add_scalar('train_loss', losses.avg)
-            stat_log.add_image('input', unmold_input(input).astype(np.int64))
-            stat_log.add_image('target', raw2image(target, if_max=False))
-            stat_log.add_image('pred', raw2image(output[0]))
 
         if options['step_per_epoch'] != -1 and options['step_per_epoch'] <= i:
             print('end of epoch')
@@ -235,20 +295,59 @@ def validata(test_loader, model, criterion, stat_log):
     with torch.no_grad():
         end = time.time()
         for i, batch in enumerate(tqdm(test_loader)):
-            input, target = batch['image'].to(device), batch['label'].to(
+            input, target = batch['image'].to(device), batch['labels'].to(
                 device)
 
-            output = model(input)
-            loss = criterion(output, target)
-            losses.update(loss.item(), input.size(0))
-            pred = F.upsample(
-                output[0], size=target.size()[-2:], mode='bilinear')
-            pred = torch.argmax(pred, dim=1).cpu().detach().numpy()
-            target = target.cpu().detach().numpy()
-            # print('target.shape', target.shape)
-            # print('pred.shape', pred.shape)
-            acc_hist.collect(target, pred)
+            fa_points = batch.get('fa_points', None)
+            if fa_points is not None:
+                fa_points = fa_points.to(device)
 
+            save_name_prefix = f'step_{i}'
+
+            # compute output
+            if fa_points is not None:
+                #model.apply(set_bn_to_eval)
+                loss_list = []
+                outputs = model(input, fa_points)
+                target = target.transpose(0, 1)
+                merge_targets = target[0]
+                merge_outputs = outputs[0]
+                image_input = unmold_input(input)
+                save_image(image_input , save_name_prefix + f'_input')
+                for j, output in enumerate(outputs):
+                    target_i = target[j]
+                    output_i = outputs[j]
+                    loss_list.append(criterion(output_i, target_i))
+                    merge_targets = torch.where(target_i > 0, target_i,
+                                                merge_targets)
+                    merge_outputs = torch.where(merge_outputs > output_i,
+                                                merge_outputs, output_i)
+
+                    # evaluate the f score
+                    pred_i = F.upsample(
+                        output_i, size=target.size()[-2:], mode='bilinear')
+                    pred_i = torch.argmax(pred_i, dim=1).cpu().detach().numpy()
+                    target_i = target_i.cpu().detach().numpy()
+                    acc_hist.collect(target_i, pred_i)
+
+                    # visualize and save images
+                    image_target_i = raw2image(target_i, if_max=False)
+                    image_output_i = raw2image(pred_i, if_max=False)
+
+                    blend_target_i = blend_labels(image_input , image_target_i[:,:,0])
+                    blend_output_i = blend_labels(image_input , image_output_i[:,:,0])
+                    save_image(blend_target_i, save_name_prefix + f'_person_{j}_gt')
+                    save_image(blend_output_i , save_name_prefix + f'_person_{j}_pred')
+                    stat_log.add_image(f'evaluate_target_{j}',blend_target_i)
+                    stat_log.add_image(f'evaluate_pred_{j}',blend_output_i)
+
+                loss_list.append(criterion(merge_outputs, merge_targets))
+                loss = sum(loss_list)
+            else:
+                output = model(input)
+                loss = criterion(output, target)
+
+            losses.update(loss.item(), input.size(0))
             batch_time.update(time.time() - end)
             end = time.time()
 
@@ -266,7 +365,7 @@ def validata(test_loader, model, criterion, stat_log):
                   loss=losses))
 
         stat_log.add_scalar('valid_loss', losses.avg)
-        stat_log.add_scalar('f1-score', f1_result['hair'])
+        stat_log.add_scalar('f1_score', f1_result['hair'])
     return f1_result['hair']
 
 

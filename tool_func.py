@@ -6,6 +6,7 @@ import torch
 from torch.optim import lr_scheduler
 from tensorboardX import SummaryWriter
 import matplotlib.pyplot as plt
+from skimage import io
 
 
 class AverageMeter(object):
@@ -49,11 +50,20 @@ class MultiStepStatisticCollector:
         return wrapper
 
 
+def set_bn_to_eval(m):
+    if isinstance(m, torch.nn.BatchNorm2d):
+        m.eval()
+
+
 def save_checkpoint(state, is_best, dirname):
     filename = os.path.join(dirname, 'checkpoint.pth')
     torch.save(state, filename)
     if is_best:
         shutil.copyfile(filename, filename.replace('.pth', '_best.pth'))
+
+
+def save_image(im, file_name):
+    io.imsave(im, file_name)
 
 
 def load_checkpoints(file_path, model, optimizer):
@@ -99,6 +109,7 @@ def unmold_input(tensor, keep_dims=False, channel_first=True):
         p = p * std + mean
         if np.max(p) <= 1:
             p = p * 255
+            p = p.astype(np.uint8)
         if channel_first:
             p = np.transpose(p, (0, 3, 1, 2))
         if keep_dims:
@@ -117,7 +128,7 @@ def unmold_input(tensor, keep_dims=False, channel_first=True):
 def raw2image(tensor, if_max=True, channel_first=True):
     '''
     input:
-        tensor: [b,w , h , 2] or [b ,w , h] , means network one-hot output or target
+        tensor: [b,c , w , h] or [b ,w , h] , means network one-hot output or target
         if_max: if get the max index of axis 1
     return: 
         numpy array: [b , w ,h ,3]
@@ -137,7 +148,7 @@ def raw2image(tensor, if_max=True, channel_first=True):
 
 _color_table = [
     np.array((1.0, 1.0, 1.0), np.float32),
-    # np.array((20, 20, 255), np.float32) / 255.0, # hair?
+    np.array((20, 20, 255), np.float32) / 255.0,  # hair?
     np.array((255, 250, 79), np.float32) / 255.0,  # face
     np.array([255, 125, 138], np.float32) / 255.0,  # lb
     np.array([213, 32, 29], np.float32) / 255.0,  # rb

@@ -371,7 +371,7 @@ def gen_transform_data_loader_2(options,
                                 mode='train',
                                 batch_size=1,
                                 shuffle=True,
-                                DataLoader=True):
+                                dataLoader=True):
     #  define composition of transforms
     transform_list = []
     if mode == 'train':
